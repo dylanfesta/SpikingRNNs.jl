@@ -1,0 +1,3 @@
+[deps]
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+SpikingRNNs = "a1c077fb-5709-4f52-8a69-c8184c82c9af"
