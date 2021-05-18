@@ -7,3 +7,7 @@ test/Manifest.toml
 
 *.code-workspace
 .directory
+
+*.hdf5
+*.jld
+*.jld2
