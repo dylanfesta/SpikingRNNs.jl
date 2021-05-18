@@ -1,8 +1,8 @@
 push!(LOAD_PATH, abspath(@__DIR__,".."))
 using Pkg
+using Test
 pkg"activate ."
 
-## 
 using LinearAlgebra,Statistics,StatsBase
 using Plots ; theme(:dark)
 using SparseArrays 
@@ -10,50 +10,40 @@ using SpikingRNNs; const global S = SpikingRNNs
 
 
 ##
-m,n = (8_000,10_000)
-ptest = 0.001
-μtest = 3.0
-σtest = 0.5
-wtest = S.sparse_wmat_lognorm(m,n,ptest,μtest,σtest)
+ne = 1000
+ni = 150
 
-histogram(nonzeros(wtest);xlims=(0,8))
+τe = 20E-3
+τi = 10E-3
 
-sum(wtest;dims=2)
+pope = S.PopRateQuadratic(ne,τe,0.05)
+popi = S.PopRateQuadratic(ni,τi,0.05)
 
-mean(nonzeros(wtest))
-std(nonzeros(wtest))
+pse = S.PSRateQuadratic(pope)
+psi = S.PSRateQuadratic(popi)
 
 
-histogram(sum(wtest;dims=2)[:] .- m*ptest*μtest)
+ptest=0.01
+μtest = 5.0
+σtest = 3.0
+wmatie = S.sparse_wmat_lognorm(popi,pope,ptest,μtest,σtest;noself=false,exact=true) 
+wmatei = S.sparse_wmat_lognorm(pope,popi,ptest,-μtest,σtest;noself=false,exact=true) 
 
-mtest = sprand(Float64,1000,100,0.01)
-
+conn_ie = S.ConnectionRate(pse,wmatie,psi)
 ##
-rr=rowvals(wtest)
 
-
-##
-mat = sparse(2I,4,4)
-
-mat[1,4] = 345
-
-vals=nonzeros(mat)
-
-rowvals(mat)
-
-vals[rowvals(mat).==1] .= 999
-
-m=1000
+using BenchmarkTools
 
 
 
-n=100
-nz=mtest.nzval
-cc=mtest.colptr
+@benchmark S.send_signal($conn_ie)
 
-rr=rowvals(mtest)
+mtest = randn(ni,ne)
+uffi = zeros(Float64,ne)
+bau = zeros(Float64,ni)
 
-mtest2 = SparseMatrixCSC(m,n,cc,rr,nz)
+foo = function ()
+  bau .+= mtest * uffi
+end
 
-
-all(mtest.==mtest2)
+@benchmark foo()

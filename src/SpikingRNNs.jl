@@ -3,9 +3,8 @@ using LinearAlgebra,Statistics,StatsBase,Random,Distributions
 using SparseArrays
 using ConfParser
 
-
-
 # Utility functions
+# for connectivity
 
 """
         lognorm_reparametrize(m,std) -> distr::LogNormal
@@ -42,20 +41,28 @@ function scale_rows!(x::Real,mat::SparseMatrixCSC)
 end
 
 
-function sparse_wmat_lognorm(npre::Integer,npost::Integer,
-    p::Real,μ::Real,σ::Real;exact=true)
+function sparse_wmat_lognorm(npost::Integer,npre::Integer,
+    p::Real,μ::Real,σ::Real;noself=false,exact=true)
   wmat = sprand(Float64,npost,npre,p)
-  no_autapses!(wmat)
-  d = lognorm_reparametrize(μ,σ)
+  μp = abs(μ)
+  if noself
+    no_autapses!(wmat)
+  end
+  d = lognorm_reparametrize(μp,σ)
   vals=nonzeros(wmat)
   rand!(d,vals)
   if exact # scale so that each row has mean exactly μ
-    scale_rows!(μ,wmat)
+    scale_rows!(μp,wmat)
   end
-  return wmat
+  if μ < 0.0
+    return - wmat
+  else
+    return wmat
+  end
 end
 
-#
+
+# Base elements
 
 abstract type Population end
 abstract type Connection end
@@ -65,9 +72,11 @@ abstract type PopState end
 abstract type ConnState end
 
 
+# Simplified form using abstract types
+sparse_wmat_lognorm(poppost::Population,poppre::Population,p,μ,σ;noself=false,exact=true) = 
+  sparse_wmat_lognorm(poppost.n,poppre.n,p,μ,σ;noself=noself,exact=exact)
 
-# warm-up , write a continuous rate module
-# solved with Euler
+# continuous rate module, supralinear activation function
 
 # threshold-quadratic input-output function
 struct PopRateQuadratic <: Population
@@ -85,27 +94,30 @@ end
 
 struct PSRateQuadratic <: PopState
   population::PopRateQuadratic
-  curr_state::Vector{Float64}
+  current_state::Vector{Float64}
   alloc_du::Vector{Float64}
   alloc_r::Vector{Float64}
   input::Vector{Float64}
 end
 function PSRateQuadratic(p::PopRateQuadratic)
-  PSRateQuadratic(p.n, ( zeros(p.n) for _ in 1:4  )... )
+  PSRateQuadratic(p, [zeros(Float64,p.n) for _ in (1:4) ]... )
 end
 
+iofunction(x,ps::PSRateQuadratic) = iofunction(x,ps.population)
 
-struct ConnRate <: Connection
-  p::Float64 # connection probability
-  μ::Float64 # mean of connected neurons (lognomr)
-  σ::Float64 # variance of connected neurons (lognorm)
+
+struct ConnectionRate <: Connection
+  preps::PSRateQuadratic # presynaptic population state
+  postps::PSRateQuadratic # postsynaptic population state
   adjR::Vector{Int64} # adjacency matrix, rows
   adjC::Vector{Int64} # adjacency matrix, columns
-end
-
-struct ConnStateRate <: ConnState
   weights::SparseMatrixCSC{Float64,Int64}
 end
+function ConnectionRate(pre::PSRateQuadratic,weights::SparseMatrixCSC,post::PSRateQuadratic)
+  aR,aC,_ = findnz(weights)
+  ConnectionRate(pre,post,aR,aC,weights)
+end
+
 
 struct InputRateStatic <: Input
   h::Vector{Float64}
@@ -120,28 +132,23 @@ function dynstep(dt::Float64,ps::PSRateQuadratic)
   return nothing
 end
 
-function send_signal(psb::PSRateQuadratic,conn::ConnStateRate,psa::PSRateQuadratic)
+"""
+    send_signal(conn::ConnStateRate)
+
+Computes the input to postsynaptic population, given the current state of presynaptic population.
+For a rate model, it applies the iofunction to the neuron potentials, gets the rate values
+then multiplies rates by weights, adding the result to the input of the postsynaptic population.
+"""
+function send_signal(conn::ConnectionRate)
   # convert a state to rates r = iofun(u) 
-  broadcast!(x->iofunction(x,psa.population),psa.alloc_r,psa.current_state)
+  r = conn.preps.alloc_r
+  broadcast!(x->iofunction(x,conn.preps),
+    r,conn.preps.current_state)
   # multiply by weights, add to input of b .  input_b += W * r
-  vals = nonzeros(conn.weights)
-  wr = rowvals(conn.weights)
-  for j in 1:psa.population.n
-    for ii in nzrange(conn.weights,j)
-      psb.input[wr[ii]] += vals[ii]*psa.alloc_r[j]
-    end
-  end 
+  muladd(conn.weights,r,conn.postps.input)
   return nothing
 end
 
 
-function send_signal_simple(psb::PSRateQuadratic,conn::ConnStateRate,psa::PSRateQuadratic)
-  # convert a state to rates r = iofun(u) 
-  broadcast!(x->iofunction(x,psa.population),psa.alloc_r,psa.current_state)
-  # multiply by weights, add to input of b .  input_b += W * r
-  BLAS.gemv!(`N`,1.0,conn.weights,psa.alloc_r,1.0,psb.input)
-  #psb.input += conn.weights * psa.alloc_r
-  return nothing
-end
 
 end # of SpikingRNNs module 
