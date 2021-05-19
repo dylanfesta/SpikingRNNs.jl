@@ -65,11 +65,36 @@ end
 # Base elements
 
 abstract type Population end
-abstract type Connection end
-abstract type Input end
+abstract type PopulationState end
+abstract type PopInput end
 
-abstract type PopState end
-abstract type ConnState end
+abstract type Connection end
+
+struct RecurrentNetwork
+  dt::Float64
+  population_states::Tuple
+  inputs::Tuple
+  connections::Tuple
+end
+
+struct PopInputStatic{P<:PopulationState} <: PopInput
+  population_state::P
+  h::Vector{Float64}
+end
+
+
+# this is the network iteration
+function dynamics_step!(ntw::RecurrentNetwork)
+  # update each population with the input already stored, reset inputs
+  dynamics_step!.(ntw.dt,ntw.population_states)
+  reset_input!.(ntw.population_states)
+  # update the input of each postsynaptic population with the oputput of the presynaptic population
+  send_signal!.(ntw.connections)
+  # add the external inputs
+  send_signal!.(ntw.inputs)
+  # one iteration done!
+  return nothing
+end
 
 
 # Simplified form using abstract types
@@ -77,6 +102,25 @@ sparse_wmat_lognorm(poppost::Population,poppre::Population,p,μ,σ;noself=false,
   sparse_wmat_lognorm(poppost.n,poppre.n,p,μ,σ;noself=noself,exact=exact)
 
 # continuous rate module, supralinear activation function
+
+
+# threshold-linear input-output function
+struct PopRateReLU <: Population
+  n::Int64 # pop size
+  τ::Float64 # time constant
+  α::Float64 # gain modulation
+end
+@inline function iofunction(x::Float64,p::PopRateReLU)
+  if x<=0.0
+    return 0.0
+  else
+    return x*p.α
+  end
+end
+@inline function ioinv(y::Float64,p::PopRateReLU)
+  y<=0.0 && return 0.0
+  return y/p.α
+end
 
 # threshold-quadratic input-output function
 struct PopRateQuadratic <: Population
@@ -91,61 +135,71 @@ end
     return x*x*p.α
   end
 end
+@inline function ioinv(y::Float64,p::PopRateQuadratic)
+  y<=0.0 && return 0.0
+  return sqrt(y/p.α)
+end
 
-struct PSRateQuadratic <: PopState
-  population::PopRateQuadratic
+struct PSRate{P} <: PopulationState
+  population::P
   current_state::Vector{Float64}
   alloc_du::Vector{Float64}
   alloc_r::Vector{Float64}
   input::Vector{Float64}
 end
-function PSRateQuadratic(p::PopRateQuadratic)
-  PSRateQuadratic(p, [zeros(Float64,p.n) for _ in (1:4) ]... )
+function PSRate(p::Population)
+  PSRate(p, [zeros(Float64,p.n) for _ in (1:4) ]... )
 end
 
-iofunction(x,ps::PSRateQuadratic) = iofunction(x,ps.population)
+iofunction(x,ps::PSRate) = iofunction(x,ps.population)
+ioinv(x,ps::PSRate) =ioinv(x,ps.population)
 
 
 struct ConnectionRate <: Connection
-  preps::PSRateQuadratic # presynaptic population state
-  postps::PSRateQuadratic # postsynaptic population state
+  postps::PSRate # postsynaptic population state
+  preps::PSRate # presynaptic population state
   adjR::Vector{Int64} # adjacency matrix, rows
   adjC::Vector{Int64} # adjacency matrix, columns
   weights::SparseMatrixCSC{Float64,Int64}
 end
-function ConnectionRate(pre::PSRateQuadratic,weights::SparseMatrixCSC,post::PSRateQuadratic)
+function ConnectionRate(post::PSRate,weights::SparseMatrixCSC,pre::PSRate)
   aR,aC,_ = findnz(weights)
-  ConnectionRate(pre,post,aR,aC,weights)
+  ConnectionRate(post,pre,aR,aC,weights)
 end
 
 
-struct InputRateStatic <: Input
-  h::Vector{Float64}
-end
-
-function dynstep(dt::Float64,ps::PSRateQuadratic)
+function dynamics_step!(dt::Float64,ps::PSRate)
   copy!(ps.alloc_du,ps.current_state)  # u
   ps.alloc_du .-= ps.input  # (u-I)
-  lmul!(-dt/ps.p.τ,ps.alloc_du) # du =  dt/τ (-u+I)
-  ps.curr_state .+= ps.alloc_du # u_t+1 = u_t + du
-  fill!(ps.input,0.0) # reset the input
+  lmul!(-dt/ps.population.τ,ps.alloc_du) # du =  dt/τ (-u+I)
+  ps.current_state .+= ps.alloc_du # u_t+1 = u_t + du
+  return nothing
+end
+
+function reset_input!(ps::PopulationState)
+  fill!(ps.input,0.0)
+  return nothing
+end
+
+function send_signal!(in::PopInputStatic)
+  in.population_state.input .+= in.h
   return nothing
 end
 
 """
-    send_signal(conn::ConnStateRate)
+    send_signal(conn::ConnectionStateRate)
 
 Computes the input to postsynaptic population, given the current state of presynaptic population.
 For a rate model, it applies the iofunction to the neuron potentials, gets the rate values
 then multiplies rates by weights, adding the result to the input of the postsynaptic population.
 """
-function send_signal(conn::ConnectionRate)
+function send_signal!(conn::ConnectionRate)
   # convert a state to rates r = iofun(u) 
   r = conn.preps.alloc_r
   broadcast!(x->iofunction(x,conn.preps),
     r,conn.preps.current_state)
   # multiply by weights, add to input of b .  input_b += W * r
-  muladd(conn.weights,r,conn.postps.input)
+  mul!(conn.postps.input,conn.weights,r,1,1)
   return nothing
 end
 
