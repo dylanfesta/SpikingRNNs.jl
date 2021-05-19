@@ -20,4 +20,5 @@ makedocs(;
 
 deploydocs(;
     repo="github.com/dylanfesta/SpikingRNNs.jl",
+    devbranch="main",
 )
