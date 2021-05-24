@@ -1,7 +1,7 @@
 
 struct PSRate{P} <: PopulationState
   population::P
-  current_state::Vector{Float64}
+  state_now::Vector{Float64}
   alloc_du::Vector{Float64}
   alloc_r::Vector{Float64}
   input::Vector{Float64}
@@ -27,11 +27,11 @@ function ConnectionRate(post::PSRate,weights::SparseMatrixCSC,pre::PSRate)
 end
 
 
-function dynamics_step!(dt::Float64,ps::PSRate)
-  copy!(ps.alloc_du,ps.current_state)  # u
+function dynamics_step!(t::Real,dt::Float64,ps::PSRate)
+  copy!(ps.alloc_du,ps.state_now)  # u
   ps.alloc_du .-= ps.input  # (u-I)
   lmul!(-dt/ps.population.τ,ps.alloc_du) # du =  dt/τ (-u+I)
-  ps.current_state .+= ps.alloc_du # u_t+1 = u_t + du
+  ps.state_now .+= ps.alloc_du # u_t+1 = u_t + du
   return nothing
 end
 
@@ -80,12 +80,17 @@ Computes the input to postsynaptic population, given the current state of presyn
 For a rate model, it applies the iofunction to the neuron potentials, gets the rate values
 then multiplies rates by weights, adding the result to the input of the postsynaptic population.
 """
-function send_signal!(conn::ConnectionRate)
+function send_signal!(t::Real,conn::ConnectionRate)
   # convert a state to rates r = iofun(u) 
   r = conn.preps.alloc_r
   broadcast!(x->iofunction(x,conn.preps),
-    r,conn.preps.current_state)
+    r,conn.preps.state_now)
   # multiply by weights, add to input of b .  input_b += W * r
   mul!(conn.postps.input,conn.weights,r,1,1)
+  return nothing
+end
+
+# No plasticity here, or evolution of any kind
+@inline function dynamics_step!(t_now::Real,dt::Real,conn::ConnectionRate)
   return nothing
 end

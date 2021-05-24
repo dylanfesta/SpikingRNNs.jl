@@ -51,8 +51,8 @@ in_e = S.PopInputStatic(pse,[0.,])
 in_i = S.PopInputStatic(psi,[0.,])
 
 # initial conditions
-pse.current_state[1] = S.ioinv(10.0,pse)
-psi.current_state[1] = S.ioinv(5.0,pse)
+pse.state_now[1] = S.ioinv(10.0,pse)
+psi.state_now[1] = S.ioinv(5.0,pse)
 
 
 dt = 1E-4
@@ -70,9 +70,10 @@ i_out = Vector{Float64}(undef,ntimes)
 
 
 for (k,t) in enumerate(times) 
-  e_out[k] = S.iofunction(pse.current_state[1],pse)
-  i_out[k] = S.iofunction(psi.current_state[1],psi)
-  S.dynamics_step!(mynetwork)
+  e_out[k] = S.iofunction(pse.state_now[1],pse)
+  i_out[k] = S.iofunction(psi.state_now[1],psi)
+  # rate model with constant input  does not really depend on absolute time (first argument)
+  S.dynamics_step!(0.0,mynetwork)
 end
 
 plot(times,[e_out i_out];linewidth=4,leg=false,

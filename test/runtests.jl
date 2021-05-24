@@ -55,8 +55,8 @@ end
   in_i = S.PopInputStatic(psi,[0.,])
 
   # initial conditions
-  pse.current_state[1] = S.ioinv(10.0,pse)
-  psi.current_state[1] = S.ioinv(5.0,pse)
+  pse.state_now[1] = S.ioinv(10.0,pse)
+  psi.state_now[1] = S.ioinv(5.0,pse)
 
   dt = 1E-4
   T = 5.0
@@ -65,14 +65,14 @@ end
   mynetwork = S.RecurrentNetwork(dt,(pse,psi),(in_e,in_i),
     (conn_ee,conn_ie,conn_ei,conn_ii) )
 
-
   e_out = Vector{Float64}(undef,ntimes)
   i_out = Vector{Float64}(undef,ntimes)
 
   for (k,t) in enumerate(times) 
-    e_out[k] = S.iofunction(pse.current_state[1],pse)
-    i_out[k] = S.iofunction(psi.current_state[1],psi)
-    S.dynamics_step!(mynetwork)
+    e_out[k] = S.iofunction(pse.state_now[1],pse)
+    i_out[k] = S.iofunction(psi.state_now[1],psi)
+    # rate model with constant input  does not really depend on absolute time (first argument)
+    S.dynamics_step!(0.0,mynetwork)  
   end
 
   @test all(e_out .>= 0.0)
@@ -85,4 +85,46 @@ end
   @test count(i_out .> i_out[1])/length(i_out) > 0.333
   @test count(e_out .> e_out[1])/length(e_out) > 0.333
 
+end
+
+@testset "single LIF neuron" begin
+  dt = 5E-4
+  myτ = 0.1
+  vth = 12.
+  v_r = -6.123
+  τrefr = 0.5
+  τpcd = 1E10
+  e1 = S.PopLIF(1,myτ,vth,v_r,τrefr,τpcd)
+  pse1 = S.PSLIF(e1)
+
+  # one static input 
+  my_input = 14.0
+  pse_in = S.PopInputStatic(pse1,[my_input,])
+
+  # empty connection (to avoid errors)
+  mywmat = sparse(zeros(Float64,(1,1)))
+  conn_ee = S.ConnectionLIF(pse1,mywmat,pse1)
+  # that's it, let's make the network
+  myntw = S.RecurrentNetwork(dt,(pse1,),(pse_in,),(conn_ee,) )
+
+  Ttot = 10.0 
+  times = (0:myntw.dt:Ttot)
+  nt = length(times)
+  pse1.state_now[1] = v_r
+  myvs = Vector{Float64}(undef,nt)
+  myfiring = BitVector(undef,nt)
+  for (k,t) in enumerate(times)
+    S.dynamics_step!(t,myntw)
+    myvs[k] = pse1.state_now[1]
+    myfiring[k]=pse1.isfiring[1]
+  end
+
+  # period of first spike
+  @test isapprox(S.expected_period_norefr(e1,my_input), times[findfirst(myfiring)] ;
+    atol = 0.02)
+
+  # number of spikes
+  myper_postrest = S.expected_period_norefr(e1.τ,0.0,e1.v_threshold,my_input)
+  nspk_an = floor(Ttot/(e1.τ_refractory + myper_postrest ) )
+  @test isapprox(nspk_an,count(myfiring) ; atol=2)
 end
