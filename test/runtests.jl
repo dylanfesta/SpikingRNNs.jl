@@ -1,6 +1,6 @@
 using SpikingRNNs ; global const S=SpikingRNNs
 using Test
-using LinearAlgebra,SparseArrays,Statistics
+using LinearAlgebra,SparseArrays,Statistics,Distributions
 using Random ; Random.seed!(0)
 
 
@@ -127,4 +127,45 @@ end
   myper_postrest = S.expected_period_norefr(e1.τ,0.0,e1.v_threshold,my_input)
   nspk_an = floor(Ttot/(e1.τ_refractory + myper_postrest ) )
   @test isapprox(nspk_an,count(myfiring) ; atol=2)
+end
+
+@testset "Hawkes isolated" begin
+  
+  # isolated, non-interacting , processes 
+  # with given input
+
+  myβ = 0.5
+  dt = 10E10 # useless
+  myn = 40 
+  p1 = S.PopulationHawkesExp(myn,myβ)
+  ps1 = S.PSHawkes(p1)
+  conn1 = S.ConnectionHawkes(ps1,sparse(zeros(myn,myn)),ps1)
+  # rates to test
+  myrates = rand(Uniform(0.5,4.0),myn)
+  p1_in = S.PopInputStatic(ps1,myrates)
+  myntw = S.RecurrentNetwork(dt,(ps1,),(p1_in,),(conn1,) )
+  ##
+  nspikes = 100_000
+  # initialize
+  tfake = NaN
+  ps1.state_now .= 1E-2
+  S.send_signal!(tfake,p1_in)
+  # save activity as #idx_fired  , t_fired
+  my_act = Vector{Tuple{Int64,Float64}}(undef,nspikes)
+  for k in 1:nspikes
+    S.dynamics_step!(tfake,myntw)
+    idx_fire = findfirst(ps1.isfiring)
+    t_now = ps1.time_now[1]
+    my_act[k] = (idx_fire,t_now)
+  end
+
+  function hawkes_mean_rates(nneus,actv::Vector)
+    t_end = actv[end][2]
+    _f = function(i)
+      return count(ac->ac[1]==i,actv)/t_end
+    end
+    return map(_f,1:nneus)
+  end
+  myrates_sim = hawkes_mean_rates(myn,my_act)
+  @test all( isapprox.(myrates,myrates_sim ;atol=0.25))
 end

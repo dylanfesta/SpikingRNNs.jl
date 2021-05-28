@@ -17,12 +17,13 @@ myτe = 0.2
 myτi = 0.1
 vth = 10.
 v_r = -5.0
-τrefr = 0.3
+τrefre = 0.3
+τrefri = 0.1
 τpcd = 0.2
-e1 = S.PopLIF(1,myτe,vth,v_r,τrefr,τpcd)
-i1 = S.PopLIF(1,myτi,vth,v_r,τrefr,τpcd)
+e1 = S.PopLIF(1,myτe,vth,v_r,τrefre,τpcd)
+i1 = S.PopLIF(1,myτi,vth,v_r,τrefri,τpcd)
 pse1 = S.PSLIF(e1)
-psi1 = S.PSLIF(e1)
+psi1 = S.PSLIF(i1)
 
 # one static input 
 in_e = 12.5
