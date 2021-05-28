@@ -1,9 +1,6 @@
 module SpikingRNNs
 using LinearAlgebra,Statistics,StatsBase,Random,Distributions
 using SparseArrays
-using ConfParser
-
-
 
 # Base elements
 

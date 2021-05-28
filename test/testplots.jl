@@ -10,6 +10,7 @@ using SpikingRNNs; const global S = SpikingRNNs
 using BenchmarkTools
 
 
+
 ##
 dt = 1E-3
 # two LIF neurons, E and I
