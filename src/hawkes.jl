@@ -96,7 +96,7 @@ function hawkes_get_spiketimes(neu::Integer,
   _f = function(ac)
     if ac[1] == neu ; push!(ret,ac[2]); end
   end
-  foreach(_f,ac)
+  foreach(_f,actv)
   return ret
 end
 
@@ -107,12 +107,59 @@ function hawkes_exp_self_mean(in::R,w_self::R,β::R) where R
   return in*β / (β-w_self)
 end
 
+# eq (16) in Hawkes 1971b
 function hawkes_exp_self_cov(taus::AbstractVector{R},
     in::R,w_self::R,β::R) where R
   λ = hawkes_exp_self_mean(in,w_self,β)
   C = w_self*λ*(2.0β - w_self) / (2.0(β-w_self))
   return @. C*exp(-(β-w_self)*taus)
 end
+
+# general solution 
+
+#=
+
+## G matrix
+
+G = Matrix{Vector{Float64}}(undef,2,2)
+fill!(G,[])
+G[1,2] = gker
+
+Gfou = zeros(ComplexF64,2,2,nker)
+for i in 1:2, j in 1:2
+  gij=G[i,j]
+  if !isempty(gij)
+    Gfou[i,j,:] = fft(gij)
+  end
+end
+
+s = run_process(G,nT,μa,μb,dt)
+
+_ = let plt = plot_traces(s,dt)
+  plot(plt;ylims=(0,1))
+end
+plot_two_traces(s,dt)
+
+## Cfou matrix
+
+Cfou = zeros(ComplexF64,2,2,nker)
+ratpart = let rats=mean_rates(s,dt)
+  #rats=[μa,μb]
+   2pi .* (rats * rats')
+ end
+
+D = diagm(0=>mean_rates(s,dt))
+
+for ω in 1:nker
+  Gf=Gfou[:,:,ω]
+  Gfmt = Gfou[:,:,nker-ω+1]'
+  Cfou[:,:,ω] = inv((I-Gf))*D*inv((I-Gfmt))
+end
+Cfou[:,:,1] += ratpart
+
+# C analytic
+C_ana = mapslices(v-> real.(ifft(v)),Cfou;dims=3)
+=#
 
 # numerical
 
@@ -153,22 +200,20 @@ function covariance_self_numerical(Y::Vector{R},
   ndt = round(Integer,τmax/dt)
   ret = Vector{Float64}(undef,ndt)
   binned_sh = similar(binned)
-  @inbounds @simd for k in 1:ndt
+  @progress for k in 1:ndt
     circshift!(binned_sh,binned,k)
-    ret[k] = dot(binned,binned_sh) 
+    @inbounds ret[k] = dot(binned,binned_sh) 
   end
-  ret ./= (ndt_tot*dt^2)
   fm = sum(binned) / Tmax # mean frequency
-  ret .-= fm^2
+  @. ret = ret /  (ndt_tot*dt^2) - fm^2
   return ret,(dt:dt:ndt*dt+eps())
 end
 
 function covariance_density_numerical(Ys::Vector{Vector{R}}, 
     τmax::R,dt::R,Tmax::R) where R
   Tmax = Tmax+dt-eps()
-  times = dt:dt:ndt*dt+eps()
   ndt = round(Integer,τmax/dt)
-  n = length(Y)
+  n = length(Ys)
   ret = Tuple{Tuple{Int64,Int64},Vector{R}}[]
   for i in 1:n ,j in i:n
     cov_ret = Vector{R}(undef,ndt)
@@ -180,11 +225,12 @@ function covariance_density_numerical(Ys::Vector{Vector{R}},
       circshift!(binnedj_sh,binnedj,k)
       cov_ret[k] = dot(binnedi,binnedj_sh)
     end
-    ret ./= (ndt_tot*dt^2)
-    fm = sum(binned) / Tmax # mean frequency
-    cov_ret .-= fm^2
+    fmi = sum(binnedi) / Tmax # mean frequency
+    fmj = sum(binnedj) / Tmax # mean frequency
+    @. cov_ret = cov_ret / (ndt_tot*dt^2) - fmi*fmj
     push!(ret,((i,j),cov_ret))
   end
+  times = dt:dt:ndt*dt+eps()
   return times,ret
 end
 

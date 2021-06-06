@@ -2,7 +2,7 @@ module SpikingRNNs
 using StatsBase: midpoint
 using LinearAlgebra,Statistics,StatsBase,Random,Distributions
 using SparseArrays
-using ProgressMeter
+using ProgressLogging
 
 # Base elements
 
