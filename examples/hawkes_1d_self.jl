@@ -36,8 +36,7 @@ myntw = S.RecurrentNetwork(tfake,(ps1,),(p1_in,),(conn1,) )
 #
 nspikes = 100_000
 # initialize
-ps1.state_now .= 1E-2
-S.send_signal!(tfake,p1_in)
+S.hawkes_initialize!(myntw)
 
 my_act = Vector{Tuple{Int64,Float64}}(undef,nspikes)
 my_state = Vector{Float64}(undef,nspikes)
@@ -64,23 +63,37 @@ myspktimes = getindex.(my_act,2)
 # between eq 6 and eq 7 in Hawkes 1997
 @show let mydt = 0.01,
   myτmax = 10.0,
-  timescov = mydt:mydt:myτmax,
-  gfou = fft( @. mywself*exp(-myβ*timescov)).*mydt
+  ts = S.get_times(mydt,myτmax)
+  gfou = fft( @. S.interaction_kernel.(ts,p1,mywself)).*mydt
   inv(1-real(gfou[1]))*myin 
 end;
 
 ##
 
-
 # what about the covariance density?
 
-mydt = 1.0
+mydt = 0.1
 myτmax = 10.0
+mytaus = S.get_times(mydt,myτmax)
+ntaus = length(mytaus)
+cov_num = S.covariance_self_numerical(myspktimes,mydt,myτmax)
+cov_an = S.hawkes_exp_self_cov(mytaus,myin,mywself,myβ)
 
-cov_num,binsc = S.covariance_self_numerical(myspktimes,myτmax,mydt,myspktimes[end])
-cov_an = S.hawkes_exp_self_cov(binsc,myin,mywself,myβ)
+plt_end = plot(mytaus,[cov_an cov_num];linewidth=3, label=["full analytic" "numerical" ])
 
-plot(binsc,[cov_an cov_num];leg=false,linewidth=3)
+## let's add to the plot the result with Fourier transform
+myfreq = S.get_frequencies(mydt,myτmax)
+gfou = S.fou_interaction_kernel.(myfreq,p1,mywself)
+ratefou = let fou0 = fftshift(gfou)[1]
+  inv(1-real(fou0))*myin 
+end
+
+ffou = ratefou ./ ( norm.(1 .- fftshift(gfou) ).^2)*inv(mydt)
+ifou = ifft(ffou)
+
+plot!(plt_end,mytaus[2:end], real.(ifou[2:ntaus]);
+  label="from Fourier",linewidth=3,linestyle=:dash)
+
 
 ##
 

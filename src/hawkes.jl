@@ -32,11 +32,23 @@ function dynamics_step!(t::Real,dt::Float64,ps::PSHawkes)
   reset_spikes!(ps)
   ps.isfiring[next_idx] = true
   # update current states
-  @. ps.state_now = hawkes_update(ps.state_now,Δt_next,ps.population)
+  @. ps.state_now = interaction_kernel(Δt_next,ps.population,ps.state_now)
   # advance time
   ps.time_now[1] += Δt_next
   return nothing
 end
+
+# initialization: send inputs at t=0, and have some initial state, if needed
+@inline function hawkes_initialize!(ntw::RecurrentNetwork;state_now::Real=1E-2)
+  for ps in ntw.population_states
+    ps.state_now[1] = state_now
+    fill!(ps.input,0.0)
+    fill!(ps.spike_proposals,Inf)
+  end
+  send_signal!.(NaN,ntw.inputs)
+  return nothing
+end
+
 
 struct PopulationHawkesExp <: Population
   n::Int64 # pop size
@@ -75,23 +87,24 @@ function hawkes_next_spike(pop::PopulationHawkesExp,state::Float64,
     Δt = rand(Exponential(inv(M)))
     t = t+Δt
     u = rand(Uniform(0,M))
-    if u <= extinp + state*exp(-pop.β*t) # exponential kernel + external input
+    if u <= extinp + interaction_kernel(t,pop,state) # exponential kernel + external input
       return t
     end
   end
   return Tmax
 end
 
-@inline function hawkes_update(state_old::Real,Δt::Real,pop::PopulationHawkesExp)
-  return state_old*exp(-pop.β*Δt) # exponential interaction kernel decrease
+@inline function interaction_kernel(t::Real,pop::PopulationHawkesExp,α::Real)
+  return α*exp(-pop.β*t) # exponential interaction kernel decrease
 end
 
-
+@inline function fou_interaction_kernel(ω::Real,pop::PopulationHawkesExp,α::Real)
+  return α*inv(pop.β - im*(2.0π)*ω)
+end
 
 ## Utilities and theoretical values
 
-function hawkes_get_spiketimes(neu::Integer,
-    actv::Vector{Tuple{N,R}}) where {N<:Integer,R<:Real}
+function hawkes_get_spiketimes(neu::Integer,actv::Vector{Tuple{N,R}}) where {N<:Integer,R<:Real}
   ret=Vector{R}(undef,0)
   _f = function(ac)
     if ac[1] == neu ; push!(ret,ac[2]); end
@@ -168,16 +181,36 @@ C_ana = mapslices(v-> real.(ifft(v)),Cfou;dims=3)
 
 Given a vector of spiketimes `Y`,
 return a vector of counts, with intervals
-`0:dt:Tmax`. The idea is that `dt` is larger than some of 
-the time intervals in Y 
+`0:dt:Tmax`. So that count length is Tmax/dt.
+Ignores event times larger than Tmax 
 """
 function bin_spikes(Y::Vector{R},dt::R,Tmax::R) where R
   bins = 0.0:dt:Tmax
-  @assert Y[end] <= bins[end] "Tmax is lower than last event time, or dt should be smaller"
+  #@assert Y[end] <= bins[end] "Tmax is lower than last event time, or dt should be smaller"
   ret = fill(0,length(bins)-1)
   for t in Y
-    k = findfirst(b -> b >= t, bins)
-    ret[k-1] += 1
+    k::Int64 = something(findfirst(b -> b >= t, bins),0)
+    if k > 1
+      ret[k-1] += 1
+    end
+  end
+  return ret
+end
+
+
+# time starts at 0, ends at T-dt, there are T/dt steps in total
+@inline function get_times(dt::Real,T::Real)
+  return (0.0:dt:(T-dt))
+end
+
+# frequencies for Fourier transform. In total T/dt * 2 
+function get_frequencies(dt::Real,T::Real)
+  dω = inv(2T)
+  ωmax = inv(2dt)
+  ret = collect(-ωmax:dω:(ωmax-dω))
+  (val,idx) = findmin(abs.(ret))
+  if abs(val)<1E-10
+    ret[idx] = 1E-9
   end
   return ret
 end
@@ -192,22 +225,23 @@ then it computes the self-covariance density for intervals
 `0:dt:τmax` (with  `dt<<τmax<<Tmax` )
 
 """
-function covariance_self_numerical(Y::Vector{R},
-    τmax::R,dt::R,Tmax::R) where R
-  Tmax = Tmax+dt-eps()
-  binned = bin_spikes(Y,dt,Tmax)
+function covariance_self_numerical(Y::Vector{R},dτ::R,τmax::R,
+    Tmax::Union{R,Nothing}=nothing) where R
+  Tmax = something(Tmax,Y[end]-dτ)
+  binned = bin_spikes(Y,dτ,Tmax)
   ndt_tot = length(binned)
-  ndt = round(Integer,τmax/dt)
+  ndt = round(Integer,τmax/dτ)
   ret = Vector{Float64}(undef,ndt)
   binned_sh = similar(binned)
-  @progress for k in 1:ndt
+  @progress for k in 0:ndt
     circshift!(binned_sh,binned,k)
     @inbounds ret[k] = dot(binned,binned_sh) 
   end
   fm = sum(binned) / Tmax # mean frequency
-  @. ret = ret /  (ndt_tot*dt^2) - fm^2
-  return ret,(dt:dt:ndt*dt+eps())
+  @. ret = ret /  (ndt_tot*dτ^2) - fm^2
+  return ret
 end
+
 
 function covariance_density_numerical(Ys::Vector{Vector{R}}, 
     τmax::R,dt::R,Tmax::R) where R
