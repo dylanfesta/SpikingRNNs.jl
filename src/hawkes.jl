@@ -128,52 +128,6 @@ function hawkes_exp_self_cov(taus::AbstractVector{R},
   return @. C*exp(-(β-w_self)*taus)
 end
 
-# general solution 
-
-#=
-
-## G matrix
-
-G = Matrix{Vector{Float64}}(undef,2,2)
-fill!(G,[])
-G[1,2] = gker
-
-Gfou = zeros(ComplexF64,2,2,nker)
-for i in 1:2, j in 1:2
-  gij=G[i,j]
-  if !isempty(gij)
-    Gfou[i,j,:] = fft(gij)
-  end
-end
-
-s = run_process(G,nT,μa,μb,dt)
-
-_ = let plt = plot_traces(s,dt)
-  plot(plt;ylims=(0,1))
-end
-plot_two_traces(s,dt)
-
-## Cfou matrix
-
-Cfou = zeros(ComplexF64,2,2,nker)
-ratpart = let rats=mean_rates(s,dt)
-  #rats=[μa,μb]
-   2pi .* (rats * rats')
- end
-
-D = diagm(0=>mean_rates(s,dt))
-
-for ω in 1:nker
-  Gf=Gfou[:,:,ω]
-  Gfmt = Gfou[:,:,nker-ω+1]'
-  Cfou[:,:,ω] = inv((I-Gf))*D*inv((I-Gfmt))
-end
-Cfou[:,:,1] += ratpart
-
-# C analytic
-C_ana = mapslices(v-> real.(ifft(v)),Cfou;dims=3)
-=#
-
 # numerical
 
 """
