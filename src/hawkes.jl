@@ -41,7 +41,7 @@ end
 # initialization: send inputs at t=0, and have some initial state, if needed
 @inline function hawkes_initialize!(ntw::RecurrentNetwork;state_now::Real=1E-2)
   for ps in ntw.population_states
-    ps.state_now[1] = state_now
+    fill!(ps.state_now,state_now)
     fill!(ps.input,0.0)
     fill!(ps.spike_proposals,Inf)
   end
@@ -233,9 +233,9 @@ function covariance_self_numerical(Y::Vector{R},dτ::R,τmax::R,
   ndt = round(Integer,τmax/dτ)
   ret = Vector{Float64}(undef,ndt)
   binned_sh = similar(binned)
-  @progress for k in 0:ndt
+  @inbounds @simd for k in 0:ndt-1
     circshift!(binned_sh,binned,k)
-    @inbounds ret[k] = dot(binned,binned_sh) 
+    ret[k+1] = dot(binned,binned_sh) 
   end
   fm = sum(binned) / Tmax # mean frequency
   @. ret = ret /  (ndt_tot*dτ^2) - fm^2
@@ -243,29 +243,36 @@ function covariance_self_numerical(Y::Vector{R},dτ::R,τmax::R,
 end
 
 
-function covariance_density_numerical(Ys::Vector{Vector{R}}, 
-    τmax::R,dt::R,Tmax::R) where R
-  Tmax = Tmax+dt-eps()
-  ndt = round(Integer,τmax/dt)
+function covariance_density_numerical(Ys::Vector{Vector{R}},dτ::Real,τmax::R,
+   Tmax::Union{R,Nothing}=nothing ; verbose::Bool=false) where R
+  Tmax = something(Tmax, maximum(x->x[end],Ys)- dτ)
+  ndt = round(Integer,τmax/dτ)
   n = length(Ys)
   ret = Tuple{Tuple{Int64,Int64},Vector{R}}[]
-  for i in 1:n ,j in i:n
-    cov_ret = Vector{R}(undef,ndt)
-    binnedi = bin_spikes(Ys[i],dt,Tmax)
-    binnedj = bin_spikes(Ys[j],dt,Tmax)
-    binnedj_sh = similar(binnedj)
-    ndt_tot = length(binnedi)
-    @inbounds @simd for k in 1:ndt
-      circshift!(binnedj_sh,binnedj,k)
-      cov_ret[k] = dot(binnedi,binnedj_sh)
-    end
-    fmi = sum(binnedi) / Tmax # mean frequency
-    fmj = sum(binnedj) / Tmax # mean frequency
-    @. cov_ret = cov_ret / (ndt_tot*dt^2) - fmi*fmj
-    push!(ret,((i,j),cov_ret))
+  if verbose
+      @info "The full dynamical iteration has $(round(Integer,Tmax/dτ)) bins ! (too many?)"
   end
-  times = dt:dt:ndt*dt+eps()
-  return times,ret
+  for i in 1:n
+    binnedi = bin_spikes(Ys[i],dτ,Tmax)
+    fmi = length(Ys[i]) / Tmax # mean frequency
+    ndt_tot = length(binnedi)
+    for j in i:n
+      if verbose 
+        @info "now computing cov for pair $i,$j"
+      end
+      cov_ret = Vector{R}(undef,ndt)
+      binnedj =  i==j ? binnedi : bin_spikes(Ys[j],dτ,Tmax)
+      fmj = length(Ys[j]) / Tmax # mean frequency
+      binnedj_sh = similar(binnedj)
+      @inbounds @simd for k in 0:ndt-1
+        circshift!(binnedj_sh,binnedj,k)
+        cov_ret[k+1] = dot(binnedi,binnedj_sh)
+      end
+      @. cov_ret = cov_ret / (ndt_tot*dτ^2) - fmi*fmj
+      push!(ret,((i,j),cov_ret))
+    end
+  end
+  return ret
 end
 
 
