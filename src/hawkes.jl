@@ -32,7 +32,7 @@ function dynamics_step!(t::Real,dt::Float64,ps::PSHawkes)
   reset_spikes!(ps)
   ps.isfiring[next_idx] = true
   # update current states
-  @. ps.state_now = interaction_kernel(Δt_next,ps.population,ps.state_now)
+  @. ps.state_now = hawkes_evolve_state(ps.state_now,Δt_next,ps.population)
   # advance time
   ps.time_now[1] += Δt_next
   return nothing
@@ -49,7 +49,6 @@ end
   return nothing
 end
 
-
 struct PopulationHawkesExp <: Population
   n::Int64 # pop size
   β::Float64 # time constant
@@ -60,12 +59,13 @@ function send_signal!(t::Real,conn::ConnectionHawkes)
   # either zero or one neuron fire, nothing more
 	post_idxs = rowvals(conn.weights) # postsynaptic neurons
 	weightsnz = nonzeros(conn.weights) # direct access to weights 
+  β = conn.preps.population.β # this is:  interaction_kernel(0,conn.preps.population) 
 	for _pre in findall(conn.preps.isfiring)
 		_posts_nz = nzrange(conn.weights,_pre) # indexes of corresponding pre in nz space
 		@inbounds for _pnz in _posts_nz
 			post_idx = post_idxs[_pnz]
 			# update the state of the neuron (input used for external current)
-			conn.postps.state_now[post_idx] += weightsnz[_pnz] 
+			conn.postps.state_now[post_idx] += weightsnz[_pnz]*β
 		end
 	end
   return nothing
@@ -87,19 +87,22 @@ function hawkes_next_spike(pop::PopulationHawkesExp,state::Float64,
     Δt = rand(Exponential(inv(M)))
     t = t+Δt
     u = rand(Uniform(0,M))
-    if u <= extinp + interaction_kernel(t,pop,state) # exponential kernel + external input
+    if u <= extinp + hawkes_evolve_state(state,t,pop) # exponential kernel + external input
       return t
     end
   end
   return Tmax
 end
 
-@inline function interaction_kernel(t::Real,pop::PopulationHawkesExp,α::Real)
-  return α*exp(-pop.β*t) # exponential interaction kernel decrease
+@inline function interaction_kernel(t::Real,pop::PopulationHawkesExp)
+  return pop.β*exp(-pop.β*t) # exponential interaction kernel decrease
+end
+@inline function hawkes_evolve_state(state::Real,Δt::Real,pop::PopulationHawkesExp)
+  return state * exp(-pop.β*Δt)  # the beta factor is already in state 
 end
 
-@inline function fou_interaction_kernel(ω::Real,pop::PopulationHawkesExp,α::Real)
-  return α*inv(pop.β - im*(2.0π)*ω)
+@inline function fou_interaction_kernel(ω::Real,pop::PopulationHawkesExp)
+  return pop.β/(pop.β - im*sqrt(2π)*ω)
 end
 
 ## Utilities and theoretical values
@@ -116,16 +119,17 @@ end
 # self excitatory, exponential kernel
 function hawkes_exp_self_mean(in::R,w_self::R,β::R) where R
   # should be w_self < β to avoid runaway excitation
-  @assert β > w_self "wrong parameters, runaway excitation!"
-  return in*β / (β-w_self)
+  # @assert β > w_self "wrong parameters, runaway excitation!"
+  return in / (1-w_self)
+  # return in / (β-w_self)
 end
 
 # eq (16) in Hawkes 1971b
 function hawkes_exp_self_cov(taus::AbstractVector{R},
     in::R,w_self::R,β::R) where R
   λ = hawkes_exp_self_mean(in,w_self,β)
-  C = w_self*λ*(2.0β - w_self) / (2.0(β-w_self))
-  return @. C*exp(-(β-w_self)*taus)
+  C = w_self*λ*(2.0 - w_self) / (2.0 (1-w_self))
+  return @. C*exp(-(1-w_self)*taus)
 end
 
 # numerical
@@ -230,47 +234,32 @@ function covariance_density_numerical(Ys::Vector{Vector{R}},dτ::Real,τmax::R,
 end
 
 
-#=
-
-
-
-
-function binprocess!(p::PointProcess)
-  @assert p.dt > 0. "Please set the correct dt (now dt = $dt )"
-  Tb = binprocess(p.T,p.dt,p.Tmax)
-  p.Tbinned = Tb
-  return p
-end
-
-
-
-function meanfreq_num(p::PointProcess)
-  return length(p)/p.Tmax
-end
-
-# covariance density
-function covariance_self(p::PointProcess,tau_max::Real)
-  ndt = round(Integer,tau_max/p.dt)
-  ndt_tot = length(p.Tbinned)
-  ret = zeros(ndt)
-  fm = meanfreq_num(p)
-  @showprogress for k in 1:ndt
-    ret[k] = dot(p.Tbinned, circshift(p.Tbinned,k)) / (ndt_tot*p.dt^2)
+function covariance_density_numerical_unnormalized(Ys::Vector{Vector{R}},dτ::Real,τmax::R,
+   Tmax::Union{R,Nothing}=nothing ; verbose::Bool=false) where R
+  Tmax = something(Tmax, maximum(x->x[end],Ys)- dτ)
+  ndt = round(Integer,τmax/dτ)
+  n = length(Ys)
+  ret = Tuple{Tuple{Int64,Int64},Vector{R}}[]
+  if verbose
+      @info "The full dynamical iteration has $(round(Integer,Tmax/dτ)) bins ! (too many?)"
   end
-  ret .-= fm^2
+  for i in 1:n
+    binnedi = bin_spikes(Ys[i],dτ,Tmax)
+    ndt_tot = length(binnedi)
+    for j in i:n
+      if verbose 
+        @info "now computing cov for pair $i,$j"
+      end
+      cov_ret = Vector{R}(undef,ndt)
+      binnedj =  i==j ? binnedi : bin_spikes(Ys[j],dτ,Tmax)
+      binnedj_sh = similar(binnedj)
+      @inbounds @simd for k in 0:ndt-1
+        circshift!(binnedj_sh,binnedj,k)
+        cov_ret[k+1] = dot(binnedi,binnedj_sh)
+      end
+      @. cov_ret = cov_ret / (ndt_tot*dτ^2)
+      push!(ret,((i,j),cov_ret))
+    end
+  end
   return ret
 end
-
-
-
-
-@inline function meanfreq(lam::LambdaExpKer)
-  return lam.ν / (1 - lam.α / lam.β)
-end
-
-function covariance_self(taus::AbstractVector{R},lam::LambdaExpKer{R}) where R
-  λ = meanfreq(lam)
-  C = lam.α*λ*(2*lam.β-lam.α) / (2*(lam.β-lam.α))
-  return @. C*exp(-(lam.β-lam.α)*taus)
-end
-=#
