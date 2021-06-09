@@ -128,7 +128,7 @@ end
 function hawkes_exp_self_cov(taus::AbstractVector{R},
     in::R,w_self::R,β::R) where R
   λ = hawkes_exp_self_mean(in,w_self,β)
-  C = w_self*λ*(2.0 - w_self) / (2.0 (1-w_self))
+  C = w_self*λ*(2.0 - w_self)/(2.0*(1-w_self))
   return @. C*exp(-(1-w_self)*taus)
 end
 
