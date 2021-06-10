@@ -1,3 +1,4 @@
+using Base: _maybetail
 
 push!(LOAD_PATH, abspath(@__DIR__,".."))
 using Pkg
@@ -21,7 +22,7 @@ end
 # theory Vs numerical
 
 
-myβ = 0.8
+myβ = 1.33
 mywself = 0.7
 myin = 3.7
 tfake = NaN
@@ -56,7 +57,6 @@ numrate = nspikes/myspktimes[end]
 # now mean rate, covariance, etc
 
 # numeric
-@show numrate
 # analytic from exponent
 @show S.hawkes_exp_self_mean(myin,mywself,myβ)
 # analytic given FFW of self-interaction kernel
@@ -67,9 +67,12 @@ numrate = nspikes/myspktimes[end]
   gfou = fft(S.interaction_kernel.(ts,p1)) .* (mywself*mydt)
   myin/(1-real(gfou[1])) 
 end;
-
-
+# or I can use the analytic transform in ω = 0. Samsies
+ratefou = let gfou0 = mywself * S.fou_interaction_kernel.(0,p1)
+  myin/(1-real(gfou0)) 
+end
 ##
+
 # what about the covariance density?
 mydt = 0.5
 myτmax = 30.0
@@ -77,25 +80,31 @@ mytaus = S.get_times(mydt,myτmax)
 ntaus = length(mytaus)
 cov_num = S.covariance_self_numerical(myspktimes,mydt,myτmax)
 cov_an = S.hawkes_exp_self_cov(mytaus,myin,mywself,myβ)
+##
 
-myplt = plot(mytaus[2:end-1], cov_num[2:end-1] ; linewidth=3, label="numerical" )
-plot!(myplt, mytaus, cov_an ;linewidth=3, label="full analytic")
+# gfou = fft(mywself .* S.interaction_kernel.(mytaus,p1) ) .* mydt
+# gfou2 = mywself .* S.fou_interaction_kernel.(myfreq,p1) |> ifftshift
 
-## let's add to the plot the result with Fourier transform
-ratefou = let gfou0 = mywself * S.fou_interaction_kernel.(0,p1)
-  myin/(1-real(gfou0)) 
+function four_high_res() # higher time resolution, longer time
+  k=2
+  mydt = 0.01
+  myτmax = 30.0 * k
+  mytaus = S.get_times(mydt,myτmax)
+  nkeep = div(length(mytaus),k)
+  myfreq = S.get_frequencies_centerzero(mydt,myτmax)
+  gfou = mywself .* S.fou_interaction_kernel.(myfreq,p1) |> ifftshift
+  ffou = let r=ratefou
+    covf(g) = r*(g+g'-g*g')/norm(1-g)^2
+    map(covf,gfou)
+  end
+  retf = real.(ifft(ffou)) ./ mydt
+  return mytaus[1:nkeep],retf[1:nkeep]
 end
 
-myfreq = S.get_frequencies(mydt,myτmax)
-gfou = mywself .* S.fou_interaction_kernel.(myfreq,p1)
+taush,covfou=four_high_res()
 
-ffou = ratefou ./ (norm.(1 .- fftshift(gfou) ).^2)  
-ifou = ifft(ffou)
-
-@info "zero lag covariance: numerical $(cov_num[1]) , with Fourier $(real(ifou[1]))"
-
-plot!(myplt,mytaus[2:end], real.(ifou[2:ntaus] );
-  label="from Fourier",linewidth=3,linestyle=:dash)
+myplt = plot(mytaus[2:end], cov_num[2:end] ; linewidth=3, label="numerical" )
+plot!(taush[1:end],covfou[1:end]; label="from Fourier",linewidth=3,linestyle=:dash)
 
 
 ##

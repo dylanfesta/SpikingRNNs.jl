@@ -102,7 +102,7 @@ end
 end
 
 @inline function fou_interaction_kernel(ω::Real,pop::PopulationHawkesExp)
-  return pop.β/(pop.β - im*sqrt(2π)*ω)
+  return pop.β/(pop.β + im*2.0π*ω)
 end
 
 ## Utilities and theoretical values
@@ -161,14 +161,25 @@ end
   return (0.0:dt:(T-dt))
 end
 
-# frequencies for Fourier transform. In total T/dt * 2 
+# frequencies for Fourier transform.
+# from -1/dt to 1/dt - 1/T in steps of 1/T
+function get_frequencies_centerzero(dt::Real,T::Real)
+  dω = inv(T)
+  ωmax = 0.5/dt
+  f = dω:dω:ωmax
+  ret = vcat(-reverse(f),0.,f[1:end-1])
+  if length(ret) != round(Integer,T/dt)
+    @warn "Frequencies do not match timesteps!"
+  end
+  return ret
+end
+
 function get_frequencies(dt::Real,T::Real)
-  dω = inv(2T)
-  ωmax = inv(2dt)
-  ret = collect(-ωmax:dω:(ωmax-dω))
-  (val,idx) = findmin(abs.(ret))
-  if abs(val)<1E-10
-    ret[idx] = 1E-9
+  dω = inv(T)
+  ωmax = inv(dt)
+  ret = 0:dω:ωmax-dω
+  if length(ret) != round(Integer,T/dt)
+    @warn "Frequencies do not match timesteps!"
   end
   return ret
 end

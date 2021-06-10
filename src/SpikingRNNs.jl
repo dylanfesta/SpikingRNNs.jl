@@ -60,7 +60,7 @@ end
 
 include("./connectivity_utils.jl")
 include("./rate_models.jl")
-include("./lif_models.jl")
+include("./lif_current.jl")
 include("./hawkes.jl")
 
 

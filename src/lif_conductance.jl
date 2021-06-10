@@ -1,17 +1,20 @@
-# LIF models
+# ./src/lif_conductance.jl
 
+############
+# conductance-based (classic) LIF
 
 # threshold-linear input-output function
-struct PopLIF <: Population
+struct PopLIFCO <: Population
   n::Int64 # pop size
   τ::Float64 # time constant
-	v_threshold::Float64 # fixed spiking threshold
+	v_threshold::Vector{Float64} # spiking threshold can vary
 	v_reset::Float64 # reset after spike
 	τ_refractory::Float64 # refractory time
-	τ_post_current_decay::Float64 # decay of postsynaptic currents
+	τ_post_conductance_decay::Float64 # decay of postsynaptic conductance
+	post_reversal_potential::Float64 # reversal potential that affects postsynaptic neurons
 end
 
-struct PSLIF{P} <: PopulationState
+struct PSLIFCO{P} <: PopulationState
   population::P
   state_now::Vector{Float64}
   input::Vector{Float64}
@@ -19,29 +22,31 @@ struct PSLIF{P} <: PopulationState
 	last_fired::Vector{Float64}
 	isfiring::BitArray{1}
 	isrefractory::BitArray{1}
+	pre_reverse_potentials::Vector{Float64}
+	pre_conductances_now::Vector{Float64}
 end
-function PSLIF(p::Population)
+function PSLIFCO(p::Population)
   PSLIF(p, ntuple(_-> zeros(Float64,p.n),4)...,ntuple(_-> falses(p.n),2)...)
 end
 
 
-struct ConnectionLIF <: Connection
-  postps::PSLIF # postsynaptic population state
-  preps::PSLIF # presynaptic population state
+struct ConnectionLIFCO <: Connection
+  postps::PSLIFCO # postsynaptic population state
+  preps::PSLIFCO # presynaptic population state
   adjR::Vector{Int64} # adjacency matrix, rows
   adjC::Vector{Int64} # adjacency matrix, columns
   weights::SparseMatrixCSC{Float64,Int64}
   post_current::Vector{Float64}
 end
 
-function ConnectionLIF(post::PSLIF,weights::SparseMatrixCSC,pre::PSLIF)
+function ConnectionLIFCO(post::PSLIFCO,weights::SparseMatrixCSC,pre::PSLIFCO)
   aR,aC,_ = findnz(weights)
 	npost = post.population.n
-  ConnectionLIF(post,pre,aR,aC,weights,zeros(Float64,npost))
+  ConnectionLIFCO(post,pre,aR,aC,weights,zeros(Float64,npost))
 end
 
 
-function dynamics_step!(t_now::Float64,dt::Float64,ps::PSLIF)
+function dynamics_step!(t_now::Float64,dt::Float64,ps::PSLIFCO)
 	# computes the update to internal voltage, given the total input
   copy!(ps.alloc_dv,ps.state_now)  # v
   ps.alloc_dv .-= ps.input  # (v-I)
@@ -65,7 +70,7 @@ function dynamics_step!(t_now::Float64,dt::Float64,ps::PSLIF)
   return nothing
 end
 
-function send_signal!(t_now::Float64,conn::ConnectionLIF)
+function send_signal!(t_now::Float64,conn::ConnectionLIFCO)
 	post_idxs = rowvals(conn.weights) # postsynaptic neurons
 	weightsnz = nonzeros(conn.weights) # direct access to weights 
 	τ_decay = conn.preps.population.τ_post_current_decay
@@ -90,7 +95,7 @@ function send_signal!(t_now::Float64,conn::ConnectionLIF)
 end
 
 # postsynaptic currents decay in time
-function dynamics_step!(t_now::Real,dt::Real,conn::ConnectionLIF)
+function dynamics_step!(t_now::Real,dt::Real,conn::ConnectionLIFCO)
 	τ_decay = conn.preps.population.τ_post_current_decay
 	@inbounds @simd for i in eachindex(conn.post_current)
 		conn.post_current[i] -= dt*conn.post_current[i] / τ_decay
@@ -98,7 +103,7 @@ function dynamics_step!(t_now::Real,dt::Real,conn::ConnectionLIF)
 	return nothing
 end
 
-@inline function send_signal!(t::Real,input::PopInputStatic{P}) where P<:PSLIF
+@inline function send_signal!(t::Real,input::PopInputStatic{P}) where P<:PSLIFCO
 	refr = findall(input.population_state.isrefractory) # refractory ones
   @inbounds @simd for i in eachindex(input.population_state.input)
 		if !(i in refr)
@@ -108,13 +113,6 @@ end
   return nothing
 end
 
-function expected_period_norefr(neu::PopLIF,input)
-	return expected_period_norefr(neu.τ,neu.v_reset,neu.v_threshold,input)
-end
-
-function expected_period_norefr(τ::Real,vr::Real,vth::Real,input::Real)
-	return τ*log( (input-vr)/(input-vth) )
-end
 
 #=
 
