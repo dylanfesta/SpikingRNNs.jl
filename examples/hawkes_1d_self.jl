@@ -1,3 +1,4 @@
+using LinearAlgebra: real
 using Base: _maybetail
 
 push!(LOAD_PATH, abspath(@__DIR__,".."))
@@ -71,37 +72,39 @@ end;
 ratefou = let gfou0 = mywself * S.fou_interaction_kernel.(0,p1)
   myin/(1-real(gfou0)) 
 end
+
+# this is to test analytic vs numeric fourier transform
+# gfou = fft(mywself .* S.interaction_kernel.(mytaus,p1) ) .* mydt
+# gfou2 = mywself .* S.fou_interaction_kernel.(myfreq,p1) |> ifftshift
 ##
 
-# what about the covariance density?
+# what about the covariance density
+# First, compute it numerically for a reasonable time step
 mydt = 0.5
 myτmax = 30.0
 mytaus = S.get_times(mydt,myτmax)
 ntaus = length(mytaus)
 cov_num = S.covariance_self_numerical(myspktimes,mydt,myτmax)
-cov_an = S.hawkes_exp_self_cov(mytaus,myin,mywself,myβ)
+#cov_an = S.hawkes_exp_self_cov(mytaus,myin,mywself,myβ)
 ##
+# now compute it analytically, at higher resolution
 
-# gfou = fft(mywself .* S.interaction_kernel.(mytaus,p1) ) .* mydt
-# gfou2 = mywself .* S.fou_interaction_kernel.(myfreq,p1) |> ifftshift
-
-function four_high_res() # higher time resolution, longer time
+function four_high_res(dt::Real,Tmax::Real) # higher time resolution, longer time
   k=2
-  mydt = 0.01
-  myτmax = 30.0 * k
-  mytaus = S.get_times(mydt,myτmax)
+  myτmax = Tmax * k
+  mytaus = S.get_times(dt,myτmax)
   nkeep = div(length(mytaus),k)
-  myfreq = S.get_frequencies_centerzero(mydt,myτmax)
+  myfreq = S.get_frequencies_centerzero(dt,myτmax)
   gfou = mywself .* S.fou_interaction_kernel.(myfreq,p1) |> ifftshift
   ffou = let r=ratefou
     covf(g) = r*(g+g'-g*g')/norm(1-g)^2
     map(covf,gfou)
   end
-  retf = real.(ifft(ffou)) ./ mydt
+  retf = real.(ifft(ffou)) ./ dt
   return mytaus[1:nkeep],retf[1:nkeep]
 end
 
-taush,covfou=four_high_res()
+taush,covfou=four_high_res(0.1mydt,myτmax)
 
 myplt = plot(mytaus[2:end], cov_num[2:end] ; linewidth=3, label="numerical" )
 plot!(taush[1:end],covfou[1:end]; label="from Fourier",linewidth=3,linestyle=:dash)
@@ -110,21 +113,20 @@ plot!(taush[1:end],covfou[1:end]; label="from Fourier",linewidth=3,linestyle=:da
 ##
 # Hawkes 2D 
 
-myβ = 0.5
-mywmat = sparse([ 0.15   0.3 
-                  0.1  0.2 ]) 
-myin = [1.12,0.1]
+myβ = 1.1
+mywmat = [ 0.15   0.0 
+           1.6  0.01 ]
+myin = [3.12,0.1]
 tfake = NaN
 p1 = S.PopulationHawkesExp(2,myβ)
 ps1 = S.PSHawkes(p1)
-conn1 = S.ConnectionHawkes(ps1,mywmat,ps1)
+conn1 = S.ConnectionHawkes(ps1,sparse(mywmat),ps1)
 # rates to test
 p1_in = S.PopInputStatic(ps1,myin)
 myntw = S.RecurrentNetwork(tfake,(ps1,),(p1_in,),(conn1,) )
 
 #
 nspikes = 500_000
-nspikes = 200
 # initialize
 S.hawkes_initialize!(myntw)
 
@@ -145,89 +147,91 @@ myspk2 = S.hawkes_get_spiketimes(2,my_act)
 myspikes_both = [myspk1,myspk2]
 myTmax = my_act[end][2]+eps()
 @info "Total duration $(round(myTmax;digits=1)) s"
-@info "Rates are $(length(myspk1)/myTmax) and $(length(myspk2)/myTmax)"
+@info "Rates are $(round.([length(myspk1)/myTmax, length(myspk2)/myTmax];digits=2))"
 
-##
-dyntimes = getindex.(my_act,2)
-plot(dyntimes,[my_state1 my_state2])
+# analytic rate from fourier Eq between 6 and  7 in Hawkes
+ratefou = let G0 =  mywmat .* S.fou_interaction_kernel.(0,p1)
+  inv(I-G0)*myin |> real
+end 
+
+@info "With Fourier, rates are $(round.(ratefou;digits=2)) Hz"
+
 ##
 # now mean rate, covariance, etc
-
 # covariance numerical
 
-mydt = 0.4
-myτmax = 80.0
+mydt = 0.5
+myτmax = 10.0
 mytaus = S.get_times(mydt,myτmax)
 ntaus = length(mytaus)
 cov_num = S.covariance_density_numerical(myspikes_both,mydt,myτmax;verbose=true)
-cov_num_u = S.covariance_density_numerical_unnormalized(myspikes_both,mydt,myτmax;verbose=true)
-#cov_self1 = S.covariance_self_numerical(myspk1,mydt,myτmax)
 
-##
-
-# numerical cov densities
+# plot numerical cov densities
 plot(mytaus[2:end-1],cov_num[1][2][2:end-1] ; linewidth = 2)
 plot!(mytaus[2:end-1],cov_num[2][2][2:end-1] ; linewidth = 2)
 plot!(mytaus[2:end-1],cov_num[3][2][2:end-1] ; linewidth = 2)
 
 ## now with fourier!
-# G elements first
-
-myfreq = S.get_frequencies(mydt,myτmax)
-gfou_all  = map(convert(Matrix,mywmat)) do w
-  S.fou_interaction_kernel.(myfreq,p1,w)
-end
-gfou_all_shift = map(fftshift,gfou_all)
-
-ratefou = let gfou0 = getindex.(gfou_all_shift,1)
-  real.(inv(I-gfou0)*myin) 
-end
-
-@info """
- Measured rates:  $(length(myspk1)/myTmax) and $(length(myspk2)/myTmax)
- Rates with Fourier : $(ratefou[1]) $(ratefou[2])
-"""
-
-# now the main one...
-
-D = diagm(0=>ratefou)
-
-Cfou = Array{eltype(gfou_all[1,1])}(undef,2,2,length(myfreq))
-
-for k in 1:length(myfreq) 
-  Gfm =  getindex.(gfou_all_shift,k)
-  # the ' operator corresponds to transpose and -ω 
-  Cfou[:,:,k] = ( inv((I-Gfm)) * D * inv((I-Gfm')) ) .* inv(mydt)
+# Pick eq 12 from Hawkes
+function four_high_res(dt::Real,Tmax::Real) 
+  k=2
+  myτmax = Tmax * k
+  mytaus = S.get_times(dt,myτmax)
+  nkeep = div(length(mytaus),k)
+  myfreq = S.get_frequencies_centerzero(dt,myτmax)
+  G_omega = map(mywmat) do w
+    ifftshift( w .* S.fou_interaction_kernel.(myfreq,p1))
+  end
+  D = diagm(0=>ratefou)
+  M = Array{ComplexF64}(undef,2,2,length(myfreq))
+  Mt = similar(M,Float64)
+  for i in eachindex(myfreq)
+    G = getindex.(G_omega,i)
+    M[:,:,i] = (I-G)\(G*D+D*G'-G*D*G')/(I-G) 
+  end
+  for i in 1:2,j in 1:2
+    Mt[i,j,:] = real.(ifft(M[i,j,:])) ./ dt
+  end
+  return mytaus[1:nkeep],Mt[:,:,1:nkeep]
 end
 
-# C analytic
-C_ana = mapslices(v-> real.(ifft(v)) ,Cfou;dims=3)
+
+## now with fourier!
+# Pick eq 13 from Hawkes
+function four_high_res2(dt::Real,Tmax::Real) 
+  k=2
+  myτmax = Tmax * k
+  mytaus = S.get_times(dt,myτmax)
+  nkeep = div(length(mytaus),k)
+  myfreq = S.get_frequencies_centerzero(dt,myτmax)
+  G_omega = map(mywmat) do w
+    ifftshift( w .* S.fou_interaction_kernel.(myfreq,p1))
+  end
+  D = diagm(0=>ratefou)
+  M = Array{ComplexF64}(undef,2,2,length(myfreq))
+  for i in eachindex(myfreq)
+    G = getindex.(G_omega,i)
+    M[:,:,i] = (I-G)\D/(I-G) 
+  end
+  Mt = similar(M,Float64)
+  for i in 1:2,j in 1:2
+    Mt[i,j,:] = real.(ifft(M[i,j,:])) ./ dt
+  end
+  return mytaus[1:nkeep],Mt[:,:,1:nkeep]
+end
 
 
-@info """
-zero lag covariance (1,1): numerical  $(cov_num[1][2][1]) , with Fourier $(C_ana[1,1,1])
-zero lag covariance (1,2): numerical  $(cov_num[2][2][1]) , with Fourier $(C_ana[1,2,1])
-zero lag covariance (2,2): numerical  $(cov_num[3][2][1]) , with Fourier $(C_ana[2,2,1])
-zero lag covariance (2,2): numerical  ?  , with Fourier $(C_ana[2,1,1])
-"""
+taush,Cfou=four_high_res2(0.1mydt,myτmax)
+taush,Cfou=four_high_res(0.1mydt,myτmax)
 
 
-# I am not sure at all about the correction term
+plot(mytaus[2:end],cov_num[1][2][2:end] ; linewidth = 3)
+plot!(taush[2:end],Cfou[1,1,2:end]; linestyle=:dash, linewidth=3)
 
-myplot = plot(mytaus[2:end],cov_num_u[1][2][2:end] .- ratefou[1]^2 ; linewidth = 2)
-plot!(myplot,mytaus[2:end],C_ana[1,1,2:ntaus]  ; linewidth = 2)
+plot(taush[2:end],Cfou[2,1,2:end]; linestyle=:dash, linewidth=3)
+plot(taush[2:end],Cfou[2,2,2:end]; linestyle=:dash, linewidth=3)
 
-myplot = plot(mytaus[2:end],cov_num[1][2][2:end] ; linewidth = 2)
-plot!(myplot,mytaus[2:end],C_ana[1,1,2:ntaus]  ; linewidth = 2)
+plot(taush,Cfou[1,2,:]; linestyle=:dash, linewidth=3)
 
-myplot = plot(mytaus[2:end],cov_num[2][2][2:end] ; linewidth = 2)
-plot!(myplot,mytaus[2:end],C_ana[2,1,2:ntaus] ; linewidth = 2)
-#plot!(myplot,mytaus[2:end],C_ana[2,1,2:ntaus] .- mydt^2*sqrt(ratefou[1]*ratefou[2]) ; linewidth = 2)
-
-myplot = plot(mytaus[2:end],cov_num[3][2][2:end] ; linewidth = 2)
-plot!(myplot,mytaus[2:end],C_ana[2,2,2:ntaus]  ; linewidth = 2)
-
-
-
-myplot = plot(mytaus[2:end],cov_num_u[2][2][2:end] .-  ratefou[1]*ratefou[2] ; linewidth = 2)
-plot!(myplot,mytaus[2:end],C_ana[2,1,2:ntaus] ; linewidth = 2)
+plot(mytaus[2:end],cov_num[3][2][2:end] ; linewidth = 3)
+plot!(taush[2:end],Cfou[2,2,2:end]; linestyle=:dash, linewidth=3)
