@@ -1,3 +1,4 @@
+using Distributions: StatsBase
 using LinearAlgebra: real
 using Base: _maybetail
 
@@ -80,12 +81,11 @@ end
 
 # what about the covariance density
 # First, compute it numerically for a reasonable time step
-mydt = 0.5
+mydt = 0.2
 myτmax = 30.0
 mytaus = S.get_times(mydt,myτmax)
 ntaus = length(mytaus)
 cov_num = S.covariance_self_numerical(myspktimes,mydt,myτmax)
-#cov_an = S.hawkes_exp_self_cov(mytaus,myin,mywself,myβ)
 ##
 # now compute it analytically, at higher resolution
 
@@ -97,7 +97,7 @@ function four_high_res(dt::Real,Tmax::Real) # higher time resolution, longer tim
   myfreq = S.get_frequencies_centerzero(dt,myτmax)
   gfou = mywself .* S.fou_interaction_kernel.(myfreq,p1) |> ifftshift
   ffou = let r=ratefou
-    covf(g) = r*(g+g'-g*g')/norm(1-g)^2
+    covf(g) = r*(g+g'-g*g')/((1-g)*(1-g'))
     map(covf,gfou)
   end
   retf = real.(ifft(ffou)) ./ dt
@@ -113,10 +113,10 @@ plot!(taush[1:end],covfou[1:end]; label="from Fourier",linewidth=3,linestyle=:da
 ##
 # Hawkes 2D 
 
-myβ = 1.1
-mywmat = [ 0.15   0.0 
-           1.6  0.01 ]
-myin = [3.12,0.1]
+myβ = 2.1
+mywmat = [ 0.31   0.5 
+           0.8  0.15 ]
+myin = [1.0,0.1]
 tfake = NaN
 p1 = S.PopulationHawkesExp(2,myβ)
 ps1 = S.PSHawkes(p1)
@@ -160,44 +160,47 @@ end
 # now mean rate, covariance, etc
 # covariance numerical
 
-mydt = 0.5
-myτmax = 10.0
+mydt = 0.1
+myτmax = 30.0
 mytaus = S.get_times(mydt,myτmax)
 ntaus = length(mytaus)
 cov_num = S.covariance_density_numerical(myspikes_both,mydt,myτmax;verbose=true)
 
 # plot numerical cov densities
-plot(mytaus[2:end-1],cov_num[1][2][2:end-1] ; linewidth = 2)
-plot!(mytaus[2:end-1],cov_num[2][2][2:end-1] ; linewidth = 2)
-plot!(mytaus[2:end-1],cov_num[3][2][2:end-1] ; linewidth = 2)
+plot(mytaus[2:end-1],cov_num[1,1,2:end-1] ; linewidth = 2)
+plot!(mytaus[2:end-1],cov_num[1,2,2:end-1] ; linewidth = 2)
+plot!(mytaus[2:end-1],cov_num[2,1,2:end-1] ; linewidth = 2)
+plot!(mytaus[2:end-1],cov_num[2,2,2:end-1] ; linewidth = 2)
 
 ## now with fourier!
 # Pick eq 12 from Hawkes
 function four_high_res(dt::Real,Tmax::Real) 
-  k=2
-  myτmax = Tmax * k
-  mytaus = S.get_times(dt,myτmax)
-  nkeep = div(length(mytaus),k)
-  myfreq = S.get_frequencies_centerzero(dt,myτmax)
+  k1 = 2
+  k2 = 0.2
+  myτmax,mydt = Tmax * k1, dt*k2
+  mytaus = S.get_times(mydt,myτmax)
+  nkeep = div(length(mytaus),k1)
+  myfreq = S.get_frequencies_centerzero(mydt,myτmax)
   G_omega = map(mywmat) do w
     ifftshift( w .* S.fou_interaction_kernel.(myfreq,p1))
   end
-  D = diagm(0=>ratefou)
+  D = Diagonal(ratefou)
   M = Array{ComplexF64}(undef,2,2,length(myfreq))
   Mt = similar(M,Float64)
   for i in eachindex(myfreq)
     G = getindex.(G_omega,i)
-    M[:,:,i] = (I-G)\(G*D+D*G'-G*D*G')/(I-G) 
+    # M[:,:,i] = (I-G)\(G*D+D*G'-G*D*G')/(I-G') 
+    M[:,:,i] = (I-G)\D*(G+G'-G*G')/(I-G') 
   end
   for i in 1:2,j in 1:2
-    Mt[i,j,:] = real.(ifft(M[i,j,:])) ./ dt
+    Mt[i,j,:] = real.(ifft(M[i,j,:])) ./ mydt
   end
   return mytaus[1:nkeep],Mt[:,:,1:nkeep]
 end
 
 
-## now with fourier!
 # Pick eq 13 from Hawkes
+# does not really work :-/ 
 function four_high_res2(dt::Real,Tmax::Real) 
   k=2
   myτmax = Tmax * k
@@ -211,7 +214,7 @@ function four_high_res2(dt::Real,Tmax::Real)
   M = Array{ComplexF64}(undef,2,2,length(myfreq))
   for i in eachindex(myfreq)
     G = getindex.(G_omega,i)
-    M[:,:,i] = (I-G)\D/(I-G) 
+    M[:,:,i] = (I-G)\D/(I-G') 
   end
   Mt = similar(M,Float64)
   for i in 1:2,j in 1:2
@@ -221,17 +224,16 @@ function four_high_res2(dt::Real,Tmax::Real)
 end
 
 
-taush,Cfou=four_high_res2(0.1mydt,myτmax)
-taush,Cfou=four_high_res(0.1mydt,myτmax)
+taush,Cfou=four_high_res(mydt,myτmax)
 
-
-plot(mytaus[2:end],cov_num[1][2][2:end] ; linewidth = 3)
+plot(mytaus[2:end],cov_num[1,1,2:end] ; linewidth = 3)
 plot!(taush[2:end],Cfou[1,1,2:end]; linestyle=:dash, linewidth=3)
 
-plot(taush[2:end],Cfou[2,1,2:end]; linestyle=:dash, linewidth=3)
-plot(taush[2:end],Cfou[2,2,2:end]; linestyle=:dash, linewidth=3)
-
-plot(taush,Cfou[1,2,:]; linestyle=:dash, linewidth=3)
-
-plot(mytaus[2:end],cov_num[3][2][2:end] ; linewidth = 3)
+plot(mytaus[2:end],cov_num[2,2,2:end] ; linewidth = 3)
 plot!(taush[2:end],Cfou[2,2,2:end]; linestyle=:dash, linewidth=3)
+
+plot(mytaus[2:end],cov_num[1,2,2:end] ; linewidth = 3)
+plot!(taush[3:end],Cfou[1,2,3:end]; linestyle=:dash, linewidth=3)
+
+plot(mytaus[2:end],cov_num[2,1,2:end] ; linewidth = 3)
+plot!(taush[3:end],Cfou[2,1,3:end]; linestyle=:dash, linewidth=3)

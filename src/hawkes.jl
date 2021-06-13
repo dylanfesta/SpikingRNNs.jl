@@ -143,16 +143,8 @@ return a vector of counts, with intervals
 Ignores event times larger than Tmax 
 """
 function bin_spikes(Y::Vector{R},dt::R,Tmax::R) where R
-  bins = 0.0:dt:Tmax
-  #@assert Y[end] <= bins[end] "Tmax is lower than last event time, or dt should be smaller"
-  ret = fill(0,length(bins)-1)
-  for t in Y
-    k::Int64 = something(findfirst(b -> b >= t, bins),0)
-    if k > 1
-      ret[k-1] += 1
-    end
-  end
-  return ret
+  h = fit(Histogram,Y,0.0:dt:Tmax,closed=:left)
+  return h.weights
 end
 
 
@@ -194,7 +186,7 @@ then it computes the self-covariance density for intervals
 `0:dt:τmax` (with  `dt<<τmax<<Tmax` )
 
 """
-function covariance_self_numerical(Y::Vector{R},dτ::R,τmax::R,
+function covariance_self_numerical_old(Y::Vector{R},dτ::R,τmax::R,
     Tmax::Union{R,Nothing}=nothing) where R
   Tmax = something(Tmax,Y[end]-dτ)
   binned = bin_spikes(Y,dτ,Tmax)
@@ -211,13 +203,19 @@ function covariance_self_numerical(Y::Vector{R},dτ::R,τmax::R,
   return ret
 end
 
+function covariance_self_numerical(Y::Vector{R},dτ::R,τmax::R,
+     Tmax::Union{R,Nothing}=nothing) where R
+  ret = covariance_density_numerical([Y,],dτ,τmax,Tmax;verbose=false)
+  return ret[1,1,:]
+end
+
 
 function covariance_density_numerical(Ys::Vector{Vector{R}},dτ::Real,τmax::R,
    Tmax::Union{R,Nothing}=nothing ; verbose::Bool=false) where R
   Tmax = something(Tmax, maximum(x->x[end],Ys)- dτ)
   ndt = round(Integer,τmax/dτ)
   n = length(Ys)
-  ret = Tuple{Tuple{Int64,Int64},Vector{R}}[]
+  ret = Array{Float64}(undef,n,n,ndt)
   if verbose
       @info "The full dynamical iteration has $(round(Integer,Tmax/dτ)) bins ! (too many?)"
   end
@@ -225,52 +223,52 @@ function covariance_density_numerical(Ys::Vector{Vector{R}},dτ::Real,τmax::R,
     binnedi = bin_spikes(Ys[i],dτ,Tmax)
     fmi = length(Ys[i]) / Tmax # mean frequency
     ndt_tot = length(binnedi)
-    for j in i:n
+    _ret_alloc = Vector{R}(undef,ndt)
+    for j in 1:n
       if verbose 
         @info "now computing cov for pair $i,$j"
       end
-      cov_ret = Vector{R}(undef,ndt)
       binnedj =  i==j ? binnedi : bin_spikes(Ys[j],dτ,Tmax)
       fmj = length(Ys[j]) / Tmax # mean frequency
       binnedj_sh = similar(binnedj)
       @inbounds @simd for k in 0:ndt-1
         circshift!(binnedj_sh,binnedj,k)
-        cov_ret[k+1] = dot(binnedi,binnedj_sh)
+        _ret_alloc[k+1] = dot(binnedi,binnedj_sh)
       end
-      @. cov_ret = cov_ret / (ndt_tot*dτ^2) - fmi*fmj
-      push!(ret,((i,j),cov_ret))
+      @. _ret_alloc = _ret_alloc / (ndt_tot*dτ^2) - fmi*fmj
+      ret[i,j,:] = _ret_alloc
     end
   end
   return ret
 end
 
 
-function covariance_density_numerical_unnormalized(Ys::Vector{Vector{R}},dτ::Real,τmax::R,
-   Tmax::Union{R,Nothing}=nothing ; verbose::Bool=false) where R
-  Tmax = something(Tmax, maximum(x->x[end],Ys)- dτ)
-  ndt = round(Integer,τmax/dτ)
-  n = length(Ys)
-  ret = Tuple{Tuple{Int64,Int64},Vector{R}}[]
-  if verbose
-      @info "The full dynamical iteration has $(round(Integer,Tmax/dτ)) bins ! (too many?)"
-  end
-  for i in 1:n
-    binnedi = bin_spikes(Ys[i],dτ,Tmax)
-    ndt_tot = length(binnedi)
-    for j in i:n
-      if verbose 
-        @info "now computing cov for pair $i,$j"
-      end
-      cov_ret = Vector{R}(undef,ndt)
-      binnedj =  i==j ? binnedi : bin_spikes(Ys[j],dτ,Tmax)
-      binnedj_sh = similar(binnedj)
-      @inbounds @simd for k in 0:ndt-1
-        circshift!(binnedj_sh,binnedj,k)
-        cov_ret[k+1] = dot(binnedi,binnedj_sh)
-      end
-      @. cov_ret = cov_ret / (ndt_tot*dτ^2)
-      push!(ret,((i,j),cov_ret))
-    end
-  end
-  return ret
-end
+# function covariance_density_numerical_unnormalized(Ys::Vector{Vector{R}},dτ::Real,τmax::R,
+#    Tmax::Union{R,Nothing}=nothing ; verbose::Bool=false) where R
+#   Tmax = something(Tmax, maximum(x->x[end],Ys)- dτ)
+#   ndt = round(Integer,τmax/dτ)
+#   n = length(Ys)
+#   ret = Tuple{Tuple{Int64,Int64},Vector{R}}[]
+#   if verbose
+#       @info "The full dynamical iteration has $(round(Integer,Tmax/dτ)) bins ! (too many?)"
+#   end
+#   for i in 1:n
+#     binnedi = bin_spikes(Ys[i],dτ,Tmax)
+#     ndt_tot = length(binnedi)
+#     for j in i:n
+#       if verbose 
+#         @info "now computing cov for pair $i,$j"
+#       end
+#       cov_ret = Vector{R}(undef,ndt)
+#       binnedj =  i==j ? binnedi : bin_spikes(Ys[j],dτ,Tmax)
+#       binnedj_sh = similar(binnedj)
+#       @inbounds @simd for k in 0:ndt-1
+#         circshift!(binnedj_sh,binnedj,k)
+#         cov_ret[k+1] = dot(binnedi,binnedj_sh)
+#       end
+#       @. cov_ret = cov_ret / (ndt_tot*dτ^2)
+#       push!(ret,((i,j),cov_ret))
+#     end
+#   end
+#   return ret
+# end
