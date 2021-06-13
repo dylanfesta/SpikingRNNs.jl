@@ -1,5 +1,3 @@
-using LinearAlgebra: getindex
-using Distributions: eltype, length
 push!(LOAD_PATH, abspath(@__DIR__,".."))
 using Pkg
 pkg"activate ."
@@ -65,3 +63,24 @@ test_b2 = fft(vcat(zeros(3000),myfunc.(myts,myβ)) ) .* mydt
 plot( vcat(myfunc.(myts,myβ),myfunc.(myts,myβ)) )
 
 plot(real.(test_b2))
+
+
+## 
+
+vv = [1.1, 2.1, 3.0 ,44.]
+myh = fit(Histogram,vv,1:4,closed=:left)
+
+StatsBase.binindex(myh,3.0)
+
+methods(Histogram)
+
+Histogram(1:4,:left)
+
+to_test = rand(Uniform(0,10.),10_000)
+
+@btime S.bin_spikes($to_test,0.1,5.)
+@btime S.bin_spikes_efficient2($to_test,0.1,5.)
+
+t1,t2 = S.bin_spikes(to_test,0.1,5.) , S.bin_spikes_efficient2(to_test,0.1,5.)
+
+@test all(t1.==t2)
