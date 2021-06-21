@@ -22,9 +22,10 @@ end
 
 n = 6
 myβ = 1.1
-mywdistr=Uniform(0.2,0.4)
+mywdistr=Uniform(0.2,0.3)
 mywmat = sprand(n,n,0.5,n->rand(mywdistr,n))
-myin = rand(Uniform(0.15,0.2),n)
+mywmat_nonsp = convert(Matrix{Float64},mywmat)
+myin = rand(Uniform(0.1,0.5),n)
 tfake = NaN
 p1 = S.PopulationHawkesExp(n,myβ)
 ps1 = S.PSHawkes(p1)
@@ -52,79 +53,75 @@ myTmax = maximum(x->x[end],myspikes_all)+eps()
 rates_all =  map(x->length(x)/myTmax, myspikes_all )
 @info "Rates are $(round.(rates_all;digits=2)) "
 
-##
-# now mean rate, covariance, etc
+# rates with Fourier 
+# analytic rate from fourier Eq between 6 and  7 in Hawkes
+ratefou = let G0 =  mywmat_nonsp .* S.fou_interaction_kernel.(0,p1)
+  inv(I-G0)*myin |> real
+end 
 
+@info "With Fourier, rates are $(round.(ratefou;digits=2)) Hz"
+
+##
 # covariance numerical
 
 mydt = 0.2
 myτmax = 80.0
 mytaus = S.get_times(mydt,myτmax)
 ntaus = length(mytaus)
-cov_num = S.covariance_density_numerical(myspikes_all,mydt,myτmax;verbose=true)
+cov_num = S.covariance_density_numerical(myspikes_all,mydt,myτmax)
 
 ##
 
 # numerical cov densities
-plot(mytaus[2:end-1],cov_num[29][2][2:end-1] ; linewidth = 2)
-plot!(mytaus[2:end-1],cov_num[2][2][2:end-1] ; linewidth = 2)
-plot!(mytaus[2:end-1],cov_num[12][2][2:end-1] ; linewidth = 2)
+plot(mytaus[2:end],cov_num[1,1,2:end] ; linewidth = 2)
+plot!(mytaus[2:end],cov_num[2,2,2:end] ; linewidth = 2)
+plot!(mytaus[2:end],cov_num[2,5,2:end] ; linewidth = 2)
 
-## now with fourier!
-# G elements first
+## now with Fourier!
 
-myfreq = S.get_frequencies(mydt,myτmax)
-gfou_all  = map(convert(Matrix,mywmat)) do w
-  S.fou_interaction_kernel.(myfreq,p1,w)
-end
-gfou_all_shift = map(fftshift,gfou_all)
-
-ratefou = let gfou0 = getindex.(gfou_all_shift,1)
-  real.(inv(I-gfou0)*myin) 
-end
-
-@info """
- Measured rates:  $(round.(rates_all;digits=2))
- Rates with Fourier :  $(round.(ratefou;digits=2))
-"""
-
-# now the main one...
-
-D = diagm(0=>ratefou)
-
-Cfou = Array{eltype(gfou_all[1,1])}(undef,n,n,length(myfreq))
-
-for k in 1:length(myfreq) 
-  Gfm =  getindex.(gfou_all_shift,k)
-  # the ' operator corresponds to transpose and -ω 
-  Cfou[:,:,k] = ( inv((I-Gfm)) * D * inv((I-Gfm')) ) .* inv(mydt)
-end
-
-# C analytic
-C_ana = mapslices(v-> real.(ifft(v)) ,Cfou;dims=3)
-_ = let _ = nothing 
-  @info "Zero lag covariances"
-  for cnum in cov_num
-    (i,j) = cnum[1]
-    println("numerical & Fourier :  $(round(cnum[2][1];digits=2)) & $(round(C_ana[i,j,1];digits=2))")
+# Pick eq 12 from Hawkes
+function four_high_res(dt::Real,Tmax::Real) 
+  k1 = 2
+  k2 = 0.2
+  n = size(mywmat_nonsp,1)
+  myτmax,mydt = Tmax * k1, dt*k2
+  mytaus = S.get_times(mydt,myτmax)
+  nkeep = div(length(mytaus),k1)
+  myfreq = S.get_frequencies_centerzero(mydt,myτmax)
+  G_omega = map(mywmat_nonsp) do w
+    ifftshift( w .* S.fou_interaction_kernel.(myfreq,p1))
   end
-  println()
-end
-
-##
-
-_ = let idx = 4,
-  cn = cov_num[idx],
-  (i,j) = cn[1]
-  @show (i,j)
-  Cana_fix = copy(C_ana[i,j,2:ntaus])
-  if i!=j
-    Cana_fix .-= mydt^2 * sqrt(ratefou[i]*ratefou[j]) 
+  D = Diagonal(ratefou)
+  M = Array{ComplexF64}(undef,n,n,length(myfreq))
+  Mt = similar(M,Float64)
+  for i in eachindex(myfreq)
+    G = getindex.(G_omega,i)
+    # M[:,:,i] = (I-G)\(G*D+D*G'-G*D*G')/(I-G') 
+    M[:,:,i] = (I-G)\D*(G+G'-G*G')/(I-G') 
   end
-  myplot = plot(mytaus[2:end],cn[2][2:end] ; linewidth = 2)
-  plot!(myplot,mytaus[2:end],Cana_fix; linewidth = 2)
+  for i in 1:n,j in 1:n
+    Mt[i,j,:] = real.(ifft(M[i,j,:])) ./ mydt
+  end
+  return mytaus[1:nkeep],Mt[:,:,1:nkeep]
 end
 
 
+taush,Cfou=four_high_res(mydt,myτmax)
 
 
+
+# numerical cov densities
+plot(mytaus[2:end],cov_num[1,1,2:end] ; linewidth = 2)
+plot!(taush[1:end],Cfou[1,1,1:end] ; linewidth=3, linestyle=:dash)
+
+
+plot(mytaus[2:end],cov_num[2,2,2:end] ; linewidth = 2)
+plot!(taush[1:end],Cfou[2,2,1:end] ; linewidth=3, linestyle=:dash)
+
+
+plot(mytaus[2:end],cov_num[2,5,2:end] ; linewidth = 2)
+plot!(taush[3:end],Cfou[2,5,3:end] ; linewidth=3, linestyle=:dash)
+
+
+plot(mytaus[2:end],cov_num[1,6,2:end] ; linewidth = 2)
+plot!(taush[3:end],Cfou[1,6,3:end] ; linewidth=3, linestyle=:dash)

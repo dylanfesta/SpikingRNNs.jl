@@ -45,16 +45,18 @@ end
 
 # this is the network iteration
 function dynamics_step!(t_now::Float64,ntw::RecurrentNetwork)
-  # update each population with the input already stored, reset inputs
+  # update each population with the input already stored
   dynamics_step!.(t_now,ntw.dt,ntw.population_states)
+  # then set inputs to zero
   reset_input!.(ntw.population_states)
+  # run the connections:
   # update the input of each postsynaptic population with the oputput of the presynaptic population
   send_signal!.(t_now,ntw.connections)
   # add the external inputs
   send_signal!.(t_now,ntw.inputs)
-  # sometimes the connection variabiles evolve in time, too 
+  # the internal connection variabiles evolve in time, too (learning & plasticity) 
   dynamics_step!.(t_now,ntw.dt,ntw.connections)
-  # one iteration done!
+  # the end !
   return nothing
 end
 

@@ -1,6 +1,8 @@
 # Hawkes point processes
 # I will try to do exact simulations.
 
+abstract type PopulationHawkes <: Population end
+
 struct PSHawkes{P} <: PopulationState
   population::P
   state_now::Vector{Float64} 
@@ -95,7 +97,11 @@ function hawkes_next_spike(pop::PopulationHawkesExp,state::Float64,
 end
 
 @inline function interaction_kernel(t::Real,pop::PopulationHawkesExp)
-  return pop.β*exp(-pop.β*t) # exponential interaction kernel decrease
+  if t < 0.0
+    return 0.0
+  else
+    return pop.β*exp(-pop.β*t) # exponential interaction kernel decrease
+  end
 end
 @inline function hawkes_evolve_state(state::Real,Δt::Real,pop::PopulationHawkesExp)
   return state * exp(-pop.β*Δt)  # the beta factor is already in state 
@@ -186,23 +192,6 @@ then it computes the self-covariance density for intervals
 `0:dt:τmax` (with  `dt<<τmax<<Tmax` )
 
 """
-function covariance_self_numerical_old(Y::Vector{R},dτ::R,τmax::R,
-    Tmax::Union{R,Nothing}=nothing) where R
-  Tmax = something(Tmax,Y[end]-dτ)
-  binned = bin_spikes(Y,dτ,Tmax)
-  ndt_tot = length(binned)
-  ndt = round(Integer,τmax/dτ)
-  ret = Vector{Float64}(undef,ndt)
-  binned_sh = similar(binned)
-  @inbounds @simd for k in 0:ndt-1
-    circshift!(binned_sh,binned,k)
-    ret[k+1] = dot(binned,binned_sh) 
-  end
-  fm = sum(binned) / Tmax # mean frequency
-  @. ret = ret /  (ndt_tot*dτ^2) - fm^2
-  return ret
-end
-
 function covariance_self_numerical(Y::Vector{R},dτ::R,τmax::R,
      Tmax::Union{R,Nothing}=nothing) where R
   ret = covariance_density_numerical([Y,],dτ,τmax,Tmax;verbose=false)
@@ -242,33 +231,3 @@ function covariance_density_numerical(Ys::Vector{Vector{R}},dτ::Real,τmax::R,
   return ret
 end
 
-
-# function covariance_density_numerical_unnormalized(Ys::Vector{Vector{R}},dτ::Real,τmax::R,
-#    Tmax::Union{R,Nothing}=nothing ; verbose::Bool=false) where R
-#   Tmax = something(Tmax, maximum(x->x[end],Ys)- dτ)
-#   ndt = round(Integer,τmax/dτ)
-#   n = length(Ys)
-#   ret = Tuple{Tuple{Int64,Int64},Vector{R}}[]
-#   if verbose
-#       @info "The full dynamical iteration has $(round(Integer,Tmax/dτ)) bins ! (too many?)"
-#   end
-#   for i in 1:n
-#     binnedi = bin_spikes(Ys[i],dτ,Tmax)
-#     ndt_tot = length(binnedi)
-#     for j in i:n
-#       if verbose 
-#         @info "now computing cov for pair $i,$j"
-#       end
-#       cov_ret = Vector{R}(undef,ndt)
-#       binnedj =  i==j ? binnedi : bin_spikes(Ys[j],dτ,Tmax)
-#       binnedj_sh = similar(binnedj)
-#       @inbounds @simd for k in 0:ndt-1
-#         circshift!(binnedj_sh,binnedj,k)
-#         cov_ret[k+1] = dot(binnedi,binnedj_sh)
-#       end
-#       @. cov_ret = cov_ret / (ndt_tot*dτ^2)
-#       push!(ret,((i,j),cov_ret))
-#     end
-#   end
-#   return ret
-# end
