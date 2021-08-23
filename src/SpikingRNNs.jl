@@ -8,7 +8,7 @@ using ProgressLogging
 
 abstract type Population end
 abstract type PopulationState end
-abstract type PopInput end
+abstract type PopulationInput end
 
 abstract type Connection end
 
@@ -19,7 +19,7 @@ struct RecurrentNetwork
   connections::Tuple
 end
 
-struct PopInputStatic{P<:PopulationState} <: PopInput
+struct PopInputStatic{P<:PopulationState} <: PopulationInput
   population_state::P
   h::Vector{Float64}
 end
@@ -54,7 +54,7 @@ function dynamics_step!(t_now::Float64,ntw::RecurrentNetwork)
   send_signal!.(t_now,ntw.connections)
   # add the external inputs
   send_signal!.(t_now,ntw.inputs)
-  # the internal connection variabiles evolve in time, too (learning & plasticity) 
+  # the internal connection variables evolve in time, too (learning & plasticity) 
   dynamics_step!.(t_now,ntw.dt,ntw.connections)
   # the end !
   return nothing
