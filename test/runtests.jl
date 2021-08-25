@@ -34,25 +34,23 @@ end
 end
 
 @testset "2D rate model" begin
-    
-  pope = S.PopRateReLU(1,1.,1.)
-  popi = S.PopRateReLU(1,1.,1.)
-  pse = S.PSRate(pope)
-  psi = S.PSRate(popi)
-  S.reset_input!.((pse,psi))
+
+  neuron_e = S.NTReLU(1.,1.)
+  neuron_i = S.NTReLU(1.,1.)
+  pse  = S.PSRate(neuron_e,1)
+  psi  = S.PSRate(neuron_i,1)
 
   (w_ee,w_ie,w_ei,w_ii) = let w = 20. , k = 1.1
     onesparsemat.((w,w,-k*w,-k*w))
   end
 
-  conn_ee = S.ConnectionRate(pse,w_ee,pse)
-  conn_ei = S.ConnectionRate(pse,w_ei,psi)
-  conn_ie = S.ConnectionRate(psi,w_ie,pse)
-  conn_ii = S.ConnectionRate(psi,w_ii,psi)
+  conn_ee = S.BaseFixedConnection(neuron_e,w_ee,neuron_e)
+  conn_ei = S.BaseFixedConnection(neuron_e,w_ei,neuron_i)
+  conn_ie = S.BaseFixedConnection(neuron_i,w_ie,neuron_e)
+  conn_ii = S.BaseFixedConnection(neuron_i,w_ii,neuron_i)
 
-  # inputs
-  in_e = S.PopInputStatic(pse,[0.,])
-  in_i = S.PopInputStatic(psi,[0.,])
+  pop_e = S.Population(pse,(conn_ee,conn_ei),(pse,psi))
+  pop_i = S.Population(psi,(conn_ie,conn_ii),(pse,psi))
 
   # initial conditions
   pse.state_now[1] = S.ioinv(10.0,pse)
@@ -62,8 +60,7 @@ end
   T = 5.0
   times = 0:dt:T 
   ntimes = length(times)
-  mynetwork = S.RecurrentNetwork(dt,(pse,psi),(in_e,in_i),
-    (conn_ee,conn_ie,conn_ei,conn_ii) )
+  mynetwork = S.RecurrentNetwork(dt,(pop_e,pop_i))
 
   e_out = Vector{Float64}(undef,ntimes)
   i_out = Vector{Float64}(undef,ntimes)
@@ -82,11 +79,55 @@ end
   # I expect aplification, let's say that 1/3 of elements are above the starting rate
   # but the last is below
   @test i_out[end]<i_out[1]
+  @test e_out[end]<e_out[1]
   @test count(i_out .> i_out[1])/length(i_out) > 0.333
   @test count(e_out .> e_out[1])/length(e_out) > 0.333
 
 end
 
+@testset "2D rate model with input" begin
+  
+  neuron_ei = S.NTReLU(1.,1.)
+  psei  = S.PSRate(neuron_ei,2)
+
+  wmat = sparse([ 2.  -3.
+                  2.5  -0.5 ]) 
+  input_mat = let ret=Matrix{Float64}(undef,2,1)
+    ret.=[50.33,2.8]
+    sparse(ret)
+  end
+
+  conn_rec = S.BaseFixedConnection(neuron_ei,wmat,neuron_ei)                  
+
+  fpoint = - inv(Matrix(wmat)-I)*input_mat
+  ## input connection!
+  in_type = S.InputSimpleOffset()
+  in_state = S.PSSimpleInput(in_type)
+  conn_in = S.BaseFixedConnection(neuron_ei,input_mat,in_state)
+  pop_ei = S.Population(psei,(conn_rec,conn_in),(psei,in_state))
+  ##
+  dt = 1E-2
+  T = 60.0
+  times = 0:dt:T 
+  ntimes = length(times)
+  mynetwork = S.RecurrentNetwork(dt,(pop_ei,))
+
+  ei_out = Matrix{Float64}(undef,2,ntimes)
+  # initial conditions
+  psei.state_now .= S.ioinv(10.0,psei)
+
+  for (k,t) in enumerate(times) 
+    ei_out[:,k] = S.iofunction.(psei.state_now,neuron_ei)
+    # rate model with constant input  does not really depend on absolute time (first argument)
+    S.dynamics_step!(mynetwork)  
+  end
+  @test all(isapprox.(ei_out[:,end],fpoint;atol=1E-1))
+
+end
+
+
+
+#=
 @testset "single LIF neuron" begin
   dt = 5E-4
   myτ = 0.1
@@ -169,3 +210,5 @@ end
   myrates_sim = hawkes_mean_rates(myn,my_act)
   @test all( isapprox.(myrates,myrates_sim ;atol=0.25))
 end
+
+=#

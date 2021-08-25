@@ -4,8 +4,95 @@
 # Current-based (classic) LIF
 
 # threshold-linear input-output function
-struct PopLIF <: Population
+struct NTLIF <: NeuronType
+  τ::Float64 # time constant
+  Cap::Float64 # capacitance
+	v_threshold::Float64 # fixed spiking threshold
+	v_reset::Float64 # reset after spike
+	τ_refractory::Float64 # refractory time
+	τ_post_current_decay::Float64 # decay of postsynaptic currents
+end
+
+struct PSLIF{NT} <: PopulationState{NT}
+  neurontype::NT
   n::Int64 # pop size
+  state_now::Vector{Float64}
+  input::Vector{Float64}
+	alloc_dv::Vector{Float64}
+	last_fired::Vector{Float64}
+	isfiring::BitArray{1}
+	isrefractory::BitArray{1}
+end
+function PSLIF(p::Population,n::Int64)
+  PSLIF(p,n,ntuple(_-> zeros(Float64,n),4)...,ntuple(_-> falses(n),2)...)
+end
+
+
+# connection 
+# must keep track of currents
+
+struct ConnLIF_fixed{NP_post,NP_pre} <: Connection
+  neurontype_post::NP_post
+  weights::SparseMatrixCSC{Float64,Int64}
+  neurontype_pre::NP_pre
+  post_current::Vector{Float64}
+end
+function ConnLIF(post::NeuronType,weights::SparseMatrixCSC,pre::NeuronType,npost::Int64)
+  ConnectionLIF(post,weights,pre,zeros(Float64,npost))
+end
+
+function local_update!(t_now::Float64,dt::Float64,ps::PSLIF)
+	# computes the update to internal voltage, given the total input
+  copy!(ps.alloc_dv,ps.state_now)  # v
+  ps.alloc_dv .-= ps.input  # (v-I)
+  lmul!(-dt/ps.population.τ,ps.alloc_dv) # du =  dt/τ (-v+I)
+  ps.state_now .+= ps.alloc_dv # v_{t+1} = v_t + dv
+	# update spikes and refractoriness, and end
+  return _spiking_state_update!(ps.state_now,ps.isrefractory,ps.last_fired,
+    t_now,ps.neurontype.τ_refractory,ps.neurontype.v_threshold,ps.neurontype.v_reset)
+end
+
+
+function forward_signal!(t_now::Real,dt::Real,
+      pspost::PSLIF,conn::ConnectionLIF,pspre::PopulationState)
+	post_idxs = rowvals(conn.weights) # postsynaptic neurons
+	weightsnz = nonzeros(conn.weights) # direct access to weights 
+	τ_decay = pspre.population.τ_post_current_decay
+	for _pre in findall(pspre.isfiring)
+		_posts_nz = nzrange(conn.weights,_pre) # indexes of corresponding pre in nz space
+		@inbounds for _pnz in _posts_nz
+			post_idx = post_idxs[_pnz]
+			# update the post currents even when refractory
+			conn.post_current[post_idx] += 
+						weightsnz[_pnz] / τ_decay
+		end
+	end
+	# add the currents to postsynaptic input
+	# ONLY non-refractory neurons
+	post_refr = findall(pspost.isrefractory) # refractory ones
+	@inbounds @simd for i in eachindex(pspost.input)
+		if !(i in post_refr)
+			pspost.input[i] += conn.post_current[i]
+		end
+	end
+  # finally, postsynaptic currents decay in time
+	@inbounds @simd for i in eachindex(conn.post_current)
+		conn.post_current[i] -= dt*conn.post_current[i] / τ_decay
+	end
+  return nothing
+end
+
+struct NTPoisson <: NeuronType
+  rate::Ref{Float64} # rate is in Hz and is mutable
+  τ_post_current_decay::Float64 # decay of postsynaptic conductance
+end
+
+# PopulationState and local_update!(...) already defined in lif_conductance.jl
+
+
+#=
+# threshold-linear input-output function
+struct PopLIF <: Population
   τ::Float64 # time constant
 	v_threshold::Float64 # fixed spiking threshold
 	v_reset::Float64 # reset after spike
@@ -118,7 +205,6 @@ function expected_period_norefr(τ::Real,vr::Real,vth::Real,input::Real)
 	return τ*log( (input-vr)/(input-vth) )
 end
 
-#=
 
 		for cc = 1:Ncells
     ###plasticity detectors, forward euler###

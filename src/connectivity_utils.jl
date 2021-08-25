@@ -17,8 +17,7 @@ function lognorm_reparametrize(m::Real,std::Real)
 end
 
 function no_autapses!(mat::SparseMatrixCSC)
-  n = min(size(mat)...)
-  for i in 1:n
+  for i in 1: min(size(mat)...)
     mat[i,i]=0.0
   end
   return dropzeros!(mat)
@@ -60,6 +59,6 @@ end
 
 
 # Simplified form using abstract types
-sparse_wmat_lognorm(poppost::Population,poppre::Population,p,μ,σ;noself=false,exact=true) = 
-  sparse_wmat_lognorm(poppost.n,poppre.n,p,μ,σ;noself=noself,exact=exact)
+sparse_wmat_lognorm(poppost,poppre,p,μ,σ;noself=false,exact=true) = 
+  sparse_wmat_lognorm(nneurons(poppost),nneurons(poppre),p,μ,σ;noself=noself,exact=exact)
 
