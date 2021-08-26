@@ -31,14 +31,14 @@ end
 # connection 
 # must keep track of currents
 
-struct ConnLIF_fixed{NP_post,NP_pre} <: Connection
-  neurontype_post::NP_post
+struct ConnLIF{N,TP<:NTuple{N,PlasticityRule}} <: Connection
   weights::SparseMatrixCSC{Float64,Int64}
-  neurontype_pre::NP_pre
   post_current::Vector{Float64}
+  plasticities::TP
 end
-function ConnLIF_fixed(post::NeuronType,weights::SparseMatrixCSC,pre::NeuronType,npost::Int64)
-  ConnLIF_fixed(post,weights,pre,zeros(Float64,npost))
+function ConnLIF(weights::SparseMatrixCSC)
+  npost=size(weights,2)
+  ConnLIF(weights,zeros(Float64,npost),())
 end
 
 function local_update!(t_now::Float64,dt::Float64,ps::PSLIF)
@@ -78,7 +78,7 @@ end
 
 
 function forward_signal!(t_now::Real,dt::Real,
-      pspost::PSLIF,conn::ConnLIF_fixed,pspre::PopulationState)
+      pspost::PSLIF,conn::ConnLIF,pspre::PopulationState)
 	post_idxs = rowvals(conn.weights) # postsynaptic neurons
 	weightsnz = nonzeros(conn.weights) # direct access to weights 
 	τ_decay = pspre.neurontype.τ_post_current_decay

@@ -9,8 +9,7 @@ using SparseArrays
 using SpikingRNNs; const global S = SpikingRNNs
 
 
-# Parameters
-
+## Parameters
 ne = 1
 ni = 1
 
@@ -37,18 +36,18 @@ end
   onesparsemat.((w,w,-k*w,-k*w))
 end
 
-conn_ee = S.BaseFixedConnection(neuron_e,w_ee,neuron_e)
-conn_ei = S.BaseFixedConnection(neuron_e,w_ei,neuron_i)
-conn_ie = S.BaseFixedConnection(neuron_i,w_ie,neuron_e)
-conn_ii = S.BaseFixedConnection(neuron_i,w_ii,neuron_i)
+conn_ee = S.BaseConnection(w_ee)
+conn_ei = S.BaseConnection(w_ei)
+conn_ie = S.BaseConnection(w_ie)
+conn_ii = S.BaseConnection(w_ii)
 
 # inputs
 h_in_e = onesparsemat(0.0)
 h_in_i = onesparsemat(0.0)
 in_state_e = S.PSSimpleInput(S.InputSimpleOffset())
 in_state_i = S.PSSimpleInput(S.InputSimpleOffset())
-conn_in_e = S.BaseFixedConnection(neuron_e,h_in_e,in_state_e)
-conn_in_i = S.BaseFixedConnection(neuron_i,h_in_i,in_state_i)
+conn_in_e = S.BaseConnection(h_in_e)
+conn_in_i = S.BaseConnection(h_in_i)
 
 # populations are population states, plus all incoming connections
 # plus presynaptic population states

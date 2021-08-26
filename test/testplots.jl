@@ -84,3 +84,12 @@ end
 ##
 
 boh=NTPoissonCO(10.,2.,3.)
+
+##
+wtest = S.sparse_wmat_lognorm(100,200,0.1,3.,2.0;rowsum=3.)
+plt=histogram(nonzeros(wtest);nbins=30)
+
+
+mean(nonzeros(wtest))
+
+sum(wtest;dims=2)

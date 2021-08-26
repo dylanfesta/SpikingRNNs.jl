@@ -60,13 +60,19 @@ struct RecurrentNetwork{N,TP<:NTuple{N,AbstractPopulation}}
   populations::TP
 end
 
-# 
-struct BaseFixedConnection{NP_post,NP_pre} <: Connection
-  neurontype_post::NP_post
+# connection and plasticity 
+
+abstract type PlasticityRule end
+struct NoPlasticity <: PlasticityRule end
+
+struct BaseConnection{N,TP<:NTuple{N,PlasticityRule}} <: Connection
   weights::SparseMatrixCSC{Float64,Int64}
-  neurontype_pre::NP_pre
+  plasticities::TP
 end
 
+function BaseConnection(w::SparseMatrixCSC)
+  return BaseConnection{0,NTuple{0,NoPlasticity}}(w,())
+end
 
 # fallback functions
 
@@ -110,6 +116,7 @@ function forward_signal!(tnow::Real,dt::Real,p::Population)
   return nothing  
 end
 
+# when the presynaptic is a simple input, just sum linearly to the input vector
 function forward_signal!(tnow::Real,dt::Real,p_post::PopulationState,
     c::Connection,p_pre::PSSimpleInput)
   wmat = c.weights

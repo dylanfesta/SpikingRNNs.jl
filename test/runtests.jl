@@ -19,18 +19,21 @@ end
   μtest = 3.0
   ptest = 0.1
   σtest = 0.5
-  wtest = S.sparse_wmat_lognorm(m,n,ptest,μtest,σtest;exact=false)
+  wtest = S.sparse_wmat_lognorm(m,n,ptest,μtest,σtest)
   wtestvals = nonzeros(wtest)
   @test isapprox(mean(wtestvals),μtest;atol=0.1)
   @test isapprox(std(wtestvals),σtest;atol=0.1)
-  wtest = S.sparse_wmat_lognorm(m,n,ptest,μtest,σtest;exact=true)
-  @test all(isapprox.(sum(wtest;dims=2),μtest;atol=0.15))
+  @test tr(Diagonal(abs.(wtest))) == 0.0 # no autpses
   m,n = (80,100)
   μtest = -3.0
   ptest = 0.333
-  wtest = S.sparse_wmat_lognorm(m,n,ptest,μtest,σtest;exact=false)
-  wtestvals = nonzeros(wtest)
-  @test isapprox(mean(wtestvals),μtest;atol=0.1)
+  wtest = S.sparse_wmat_lognorm(m,n,ptest,μtest,σtest;rowsum=123.0)
+  @test all(isapprox.(sum(wtest;dims=2),-123.0;atol=0.001))
+
+  wtest = S.sparse_wmat(m,n,ptest,-0.123)
+  wvals = nonzeros(wtest)
+  @test all( isapprox.(wvals,-0.123) )
+  
 end
 
 @testset "2D rate model" begin
@@ -44,10 +47,10 @@ end
     onesparsemat.((w,w,-k*w,-k*w))
   end
 
-  conn_ee = S.BaseFixedConnection(neuron_e,w_ee,neuron_e)
-  conn_ei = S.BaseFixedConnection(neuron_e,w_ei,neuron_i)
-  conn_ie = S.BaseFixedConnection(neuron_i,w_ie,neuron_e)
-  conn_ii = S.BaseFixedConnection(neuron_i,w_ii,neuron_i)
+  conn_ee = S.BaseConnection(w_ee)
+  conn_ei = S.BaseConnection(w_ei)
+  conn_ie = S.BaseConnection(w_ie)
+  conn_ii = S.BaseConnection(w_ii)
 
   pop_e = S.Population(pse,(conn_ee,conn_ei),(pse,psi))
   pop_i = S.Population(psi,(conn_ie,conn_ii),(pse,psi))
@@ -97,13 +100,13 @@ end
     sparse(ret)
   end
 
-  conn_rec = S.BaseFixedConnection(neuron_ei,wmat,neuron_ei)                  
+  conn_rec = S.BaseConnection(wmat)                  
 
   fpoint = - inv(Matrix(wmat)-I)*input_mat
   ## input connection!
   in_type = S.InputSimpleOffset()
   in_state = S.PSSimpleInput(in_type)
-  conn_in = S.BaseFixedConnection(neuron_ei,input_mat,in_state)
+  conn_in = S.BaseConnection(input_mat)
   pop_ei = S.Population(psei,(conn_rec,conn_in),(psei,in_state))
   ##
   dt = 1E-2

@@ -74,7 +74,7 @@ Computes the input to postsynaptic population, given the current state of presyn
 For a rate model, it applies the iofunction to the neuron potentials, gets the rate values
 then multiplies rates by weights, adding the result to the input of the postsynaptic population.
 """
-function forward_signal!(t::Real,dt::Real,pspost::PSRate,conn::BaseFixedConnection,pspre::PSRate)
+function forward_signal!(t::Real,dt::Real,pspost::PSRate,conn::BaseConnection,pspre::PSRate)
   # convert a state to rates r = iofun(u) 
   r = pspre.alloc_r
   broadcast!(x->iofunction(x,pspre.neurontype),r,pspre.state_now)
