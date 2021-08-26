@@ -1,10 +1,7 @@
 # created: 20210519 
-# 2D rate model with balanced amplification effect. 
+# 2D linear rate model with balanced amplification effect. 
 
 push!(LOAD_PATH, abspath(@__DIR__,".."))
-using Pkg
-using Test
-pkg"activate ."
 
 using LinearAlgebra,Statistics,StatsBase
 using Plots,NamedColors ; theme(:dark)
@@ -12,7 +9,7 @@ using SparseArrays
 using SpikingRNNs; const global S = SpikingRNNs
 
 
-##
+# Parameters
 
 ne = 1
 ni = 1
@@ -22,18 +19,17 @@ ni = 1
 
 α = 1.
 
-# populations
-pope = S.PopRateReLU(ne,τe,α)
-popi = S.PopRateReLU(ni,τi,α)
+# Define neuron types and population states
 
-pse = S.PSRate(pope)
-psi = S.PSRate(popi)
-S.reset_input!.((pse,psi))
+neuron_e = S.NTReLU(τe,α)
+neuron_i = S.NTReLU(τi,α)
+pse  = S.PSRate(neuron_e,ne)
+psi  = S.PSRate(neuron_i,ni)
 
-
-# connections
+# Define the connections
 function onesparsemat(w::Real)
-  mat=Matrix{Float64}(undef,1,1) ; mat[1,1]=w
+  mat = Matrix{Float64}(undef,1,1)
+  mat[1,1] = w
   return sparse(mat)
 end
 
@@ -41,32 +37,40 @@ end
   onesparsemat.((w,w,-k*w,-k*w))
 end
 
-conn_ee = S.ConnectionRate(pse,w_ee,pse)
-conn_ei = S.ConnectionRate(pse,w_ei,psi)
-conn_ie = S.ConnectionRate(psi,w_ie,pse)
-conn_ii = S.ConnectionRate(psi,w_ii,psi)
+conn_ee = S.BaseFixedConnection(neuron_e,w_ee,neuron_e)
+conn_ei = S.BaseFixedConnection(neuron_e,w_ei,neuron_i)
+conn_ie = S.BaseFixedConnection(neuron_i,w_ie,neuron_e)
+conn_ii = S.BaseFixedConnection(neuron_i,w_ii,neuron_i)
 
 # inputs
-in_e = S.PopInputStatic(pse,[0.,])
-in_i = S.PopInputStatic(psi,[0.,])
+h_in_e = onesparsemat(0.0)
+h_in_i = onesparsemat(0.0)
+in_state_e = S.PSSimpleInput(S.InputSimpleOffset())
+in_state_i = S.PSSimpleInput(S.InputSimpleOffset())
+conn_in_e = S.BaseFixedConnection(neuron_e,h_in_e,in_state_e)
+conn_in_i = S.BaseFixedConnection(neuron_i,h_in_i,in_state_i)
 
-# initial conditions
-pse.state_now[1] = S.ioinv(10.0,pse)
-psi.state_now[1] = S.ioinv(5.0,pse)
+# populations are population states, plus all incoming connections
+# plus presynaptic population states
 
+pop_e = S.Population(pse,(conn_ee,conn_ei,conn_in_e),(pse,psi,in_state_e))
+pop_i = S.Population(psi,(conn_ie,conn_ii,conn_in_i),(pse,psi,in_state_i))
 
 dt = 1E-4
 T = 10.0
 times = 0:dt:T 
 ntimes = length(times)
-mynetwork = S.RecurrentNetwork(dt,(pse,psi),(in_e,in_i),
-  (conn_ee,conn_ie,conn_ei,conn_ii) )
+mynetwork = S.RecurrentNetwork(dt,(pop_e,pop_i))
 
 
 e_out = Vector{Float64}(undef,ntimes)
 i_out = Vector{Float64}(undef,ntimes)
 
 ##
+
+# initial conditions
+pse.state_now[1] = S.ioinv(10.0,pse)
+psi.state_now[1] = S.ioinv(5.0,pse)
 
 
 for (k,t) in enumerate(times) 
@@ -76,5 +80,5 @@ for (k,t) in enumerate(times)
   S.dynamics_step!(0.0,mynetwork)
 end
 
-plot(times,[e_out i_out];linewidth=4,leg=false,
-  color=[colorant"Teal" colorant"Salmon"])
+plot(times,[e_out i_out];linewidth=4,leg=:topright,
+  color=[colorant"Teal" colorant"Salmon"],label=["exc" "inh"])

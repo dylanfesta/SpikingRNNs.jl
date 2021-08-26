@@ -1,14 +1,13 @@
 push!(LOAD_PATH, abspath(@__DIR__,".."))
-using Pkg
-pkg"activate ."
-
-using Test
 using LinearAlgebra,Statistics,StatsBase
 using Plots,NamedColors ; theme(:dark)
 using SparseArrays 
 using SpikingRNNs; const global S = SpikingRNNs
-using BenchmarkTools
 
+function onesparsemat(w::Real)
+  mat=Matrix{Float64}(undef,1,1) ; mat[1,1]=w
+  return sparse(mat)
+end
 
 ##
 dt = 1E-3
@@ -17,46 +16,54 @@ myτe = 0.2
 myτi = 0.1
 vth = 10.
 v_r = -5.0
-τrefre = 0.3
-τrefri = 0.1
-τpcd = 0.2
-e1 = S.PopLIF(1,myτe,vth,v_r,τrefre,τpcd)
-i1 = S.PopLIF(1,myτi,vth,v_r,τrefri,τpcd)
-pse1 = S.PSLIF(e1)
-psi1 = S.PSLIF(i1)
+τrefre = 0.3 # refractoriness
+τrefri = 0.1 
+τpcd = 0.2 # post synaptic current decay
+e1 = S.NTLIF(myτe,vth,v_r,τrefre,τpcd)
+i1 = S.NTLIF(myτi,vth,v_r,τrefri,τpcd)
+pse1 = S.PSLIF(e1,1)
+psi1 = S.PSLIF(i1,1)
 
 # one static input 
-in_e = 12.5
-in_i = 10.5
-pse_in = S.PopInputStatic(pse1,[in_e,])
-psi_in = S.PopInputStatic(psi1,[in_i,])
+h_in_e = onesparsemat(10.1)
+h_in_i = onesparsemat(9.0)
+in_type = S.InputSimpleOffset()
+in_state_e = S.PSSimpleInput(in_type)
+in_state_i = S.PSSimpleInput(in_type)
 
 # connect E <-> I , both ways, but no autapses 
 # i connections should be negative!
-function onesparsemat(w::Real)
-  mat=Matrix{Float64}(undef,1,1) ; mat[1,1]=w
-  return sparse(mat)
-end
 
-conn_ie = S.ConnectionLIF(psi1,onesparsemat(1.0),pse1)
-conn_ei = S.ConnectionLIF(pse1,onesparsemat(-0.8),psi1)
+conn_ie = S.ConnLIF_fixed(e1,onesparsemat(1.0),e1,1)
+conn_ei = S.ConnLIF_fixed(e1,onesparsemat(-0.8),i1,1)
+conn_in_e = S.BaseFixedConnection(e1,h_in_e,in_type)
+conn_in_i = S.BaseFixedConnection(i1,h_in_i,in_type)
+
+# connected populations
+
+pop_e = S.Population(pse1,(conn_ei,conn_in_e),(psi1,in_state_e))
+pop_i = S.Population(psi1,(conn_ie,conn_in_i),(pse1,in_state_i))
+
 # that's it, let's make the network
-myntw = S.RecurrentNetwork(dt,(pse1,psi1),(pse_in,psi_in),(conn_ie,conn_ei) )
+myntw = S.RecurrentNetwork(dt,(pop_e,pop_i))
 
 ##
 
 Ttot = 10.
 times = (0:myntw.dt:Ttot)
 nt = length(times)
+# initial conditions
 pse1.state_now[1] = v_r
 psi1.state_now[1] = v_r + 0.95*(vth-v_r)
-myvse = Vector{Float64}(undef,nt)
-myfiringe = BitVector(undef,nt)
-myrefre = similar(myfiringe)
+# things to save
+myvse = Vector{Float64}(undef,nt) # voltage
+myfiringe = BitVector(undef,nt) # spike raster
+myrefre = similar(myfiringe)  # if it is refractory
+eicurr = similar(myvse)  # e-i current 
+
 myvsi = Vector{Float64}(undef,nt)
 myfiringi = BitVector(undef,nt)
 myrefri = similar(myfiringe)
-eicurr = similar(myvsi)
 iecurr = similar(myvsi)
 
 for (k,t) in enumerate(times)
@@ -71,6 +78,8 @@ for (k,t) in enumerate(times)
   iecurr[k]=conn_ie.post_current[1]
 end
 
+# add spikes for plotting purposes, the eight is set arbitrarily to 
+# three times the firing threshold
 myvse[myfiringe] .= 3 * e1.v_threshold
 myvsi[myfiringi] .= 3 * e1.v_threshold;
 
@@ -81,6 +90,7 @@ plt=plot(times,myvse;leg=false,linewidth=3,
   ylabel="E (mV)",
   color=colorant"Midnight Blue")
 
+# the green line indicates when the neuron is refractory
 plot!(plt,times, 20.0*myrefre; opacity=0.6, color=:green)  
 
 plti=plot(times,myvsi;leg=false,linewidth=3,

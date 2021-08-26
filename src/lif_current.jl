@@ -6,7 +6,7 @@
 # threshold-linear input-output function
 struct NTLIF <: NeuronType
   τ::Float64 # time constant
-  Cap::Float64 # capacitance
+  # Cap::Float64 # capacitance ... TO DO
 	v_threshold::Float64 # fixed spiking threshold
 	v_reset::Float64 # reset after spike
 	τ_refractory::Float64 # refractory time
@@ -23,7 +23,7 @@ struct PSLIF{NT} <: PopulationState{NT}
 	isfiring::BitArray{1}
 	isrefractory::BitArray{1}
 end
-function PSLIF(p::Population,n::Int64)
+function PSLIF(p::NTLIF,n::Int64)
   PSLIF(p,n,ntuple(_-> zeros(Float64,n),4)...,ntuple(_-> falses(n),2)...)
 end
 
@@ -37,27 +37,51 @@ struct ConnLIF_fixed{NP_post,NP_pre} <: Connection
   neurontype_pre::NP_pre
   post_current::Vector{Float64}
 end
-function ConnLIF(post::NeuronType,weights::SparseMatrixCSC,pre::NeuronType,npost::Int64)
-  ConnectionLIF(post,weights,pre,zeros(Float64,npost))
+function ConnLIF_fixed(post::NeuronType,weights::SparseMatrixCSC,pre::NeuronType,npost::Int64)
+  ConnLIF_fixed(post,weights,pre,zeros(Float64,npost))
 end
 
 function local_update!(t_now::Float64,dt::Float64,ps::PSLIF)
 	# computes the update to internal voltage, given the total input
   copy!(ps.alloc_dv,ps.state_now)  # v
   ps.alloc_dv .-= ps.input  # (v-I)
-  lmul!(-dt/ps.population.τ,ps.alloc_dv) # du =  dt/τ (-v+I)
+  lmul!(-dt/ps.neurontype.τ,ps.alloc_dv) # du =  dt/τ (-v+I)
   ps.state_now .+= ps.alloc_dv # v_{t+1} = v_t + dv
 	# update spikes and refractoriness, and end
-  return _spiking_state_update!(ps.state_now,ps.isrefractory,ps.last_fired,
+  return _spiking_state_update!(ps.state_now,ps.isfiring,ps.isrefractory,ps.last_fired,
     t_now,ps.neurontype.τ_refractory,ps.neurontype.v_threshold,ps.neurontype.v_reset)
+end
+
+# TODO -> shared file between firing models
+# examines state_now, if above threshold, isfiring and refractory turn true
+# and potential is reset. Finally, removes expired refractoriness
+function _spiking_state_update!(state_now::Vector{R},
+    isfiring::BitArray{1},isrefractory::BitArray{1},
+    last_fired::Vector{R},
+    t_now::R, t_refractory::R,
+    v_threshold::R, v_reset::R) where R<:Real
+  reset_spikes!(isfiring)  
+	@inbounds @simd for i in eachindex(state_now)
+		if state_now[i] > v_threshold
+			state_now[i] =  v_reset
+			isfiring[i] = true
+			last_fired[i] = t_now
+			isrefractory[i] = true
+		# check only when refractory
+		elseif isrefractory[i] && 
+				( (t_now-last_fired[i]) >= t_refractory)
+			isrefractory[i] = false
+		end
+	end
+  return nothing
 end
 
 
 function forward_signal!(t_now::Real,dt::Real,
-      pspost::PSLIF,conn::ConnectionLIF,pspre::PopulationState)
+      pspost::PSLIF,conn::ConnLIF_fixed,pspre::PopulationState)
 	post_idxs = rowvals(conn.weights) # postsynaptic neurons
 	weightsnz = nonzeros(conn.weights) # direct access to weights 
-	τ_decay = pspre.population.τ_post_current_decay
+	τ_decay = pspre.neurontype.τ_post_current_decay
 	for _pre in findall(pspre.isfiring)
 		_posts_nz = nzrange(conn.weights,_pre) # indexes of corresponding pre in nz space
 		@inbounds for _pnz in _posts_nz

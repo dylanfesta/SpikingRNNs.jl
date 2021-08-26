@@ -131,10 +131,9 @@ dynamics_step!(ntw::RecurrentNetwork) = dynamics_step!(NaN,ntw)
 
 include("./connectivity_utils.jl")
 include("./rate_models.jl")
-
+include("./lif_current.jl")
 
 #=
-include("./lif_current.jl")
 include("./hawkes.jl")
 =#
 
