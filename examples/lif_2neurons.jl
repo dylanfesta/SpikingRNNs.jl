@@ -34,10 +34,10 @@ in_state_i = S.PSSimpleInput(in_type)
 # connect E <-> I , both ways, but no autapses 
 # i connections should be negative!
 
-conn_ie = S.ConnLIF_fixed(e1,onesparsemat(1.0),e1,1)
-conn_ei = S.ConnLIF_fixed(e1,onesparsemat(-0.8),i1,1)
-conn_in_e = S.BaseFixedConnection(e1,h_in_e,in_type)
-conn_in_i = S.BaseFixedConnection(i1,h_in_i,in_type)
+conn_ie = S.ConnLIF(onesparsemat(1.0))
+conn_ei = S.ConnLIF(onesparsemat(-0.8))
+conn_in_e = S.BaseConnection(h_in_e)
+conn_in_i = S.BaseConnection(h_in_i)
 
 # connected populations
 

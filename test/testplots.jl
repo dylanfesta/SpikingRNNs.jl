@@ -2,7 +2,7 @@ push!(LOAD_PATH, abspath(@__DIR__,".."))
 
 using Test
 using LinearAlgebra,Statistics,StatsBase,Distributions
-using Plots,NamedColors ; theme(:dark) ; plotlyjs()
+using Plots,NamedColors ; theme(:dark)
 using SparseArrays 
 using SpikingRNNs; const global S = SpikingRNNs
 using BenchmarkTools
@@ -15,7 +15,7 @@ end
 
 ##
 
-neuron_ei = S.NTReQuadratic(1.0,0.01)
+neuron_ei = S.NTQuadratic(1.0,0.01)
 psei  = S.PSRate(neuron_ei,2)
 
 wmat = sparse([ 2.  -3.
@@ -25,7 +25,7 @@ input_mat = let ret=Matrix{Float64}(undef,2,1)
   sparse(ret)
 end
 
-conn_rec = S.BaseFixedConnection(neuron_ei,wmat,neuron_ei)                  
+conn_rec = S.BaseConnection(wmat)                  
 
 fpoint = - inv(Matrix(wmat)-I)*input_mat
 @info fpoint
@@ -33,11 +33,10 @@ fpoint = - inv(Matrix(wmat)-I)*input_mat
 
 in_type = S.InputSimpleOffset()
 in_state = S.PSSimpleInput(in_type)
-conn_in = S.BaseFixedConnection(neuron_ei,input_mat,in_state)
+conn_in = S.BaseConnection(input_mat)
 ##
 
-pop_ei = S.Population(psei,(conn_rec,conn_in),(psei,in_state))
-
+pop_ei = SpikingRNNs.Population(psei,(conn_rec,conn_in),(psei,in_state))
 
 
 ##

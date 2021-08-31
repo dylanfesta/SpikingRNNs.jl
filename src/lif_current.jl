@@ -6,7 +6,6 @@
 # threshold-linear input-output function
 struct NTLIF <: NeuronType
   τ::Float64 # time constant
-  # Cap::Float64 # capacitance ... TO DO
 	v_threshold::Float64 # fixed spiking threshold
 	v_reset::Float64 # reset after spike
 	τ_refractory::Float64 # refractory time
@@ -43,38 +42,17 @@ end
 
 function local_update!(t_now::Float64,dt::Float64,ps::PSLIF)
 	# computes the update to internal voltage, given the total input
+  # dv =  (v_leak - v ) dt / τ + I dt / Cap
   copy!(ps.alloc_dv,ps.state_now)  # v
   ps.alloc_dv .-= ps.input  # (v-I)
   lmul!(-dt/ps.neurontype.τ,ps.alloc_dv) # du =  dt/τ (-v+I)
   ps.state_now .+= ps.alloc_dv # v_{t+1} = v_t + dv
 	# update spikes and refractoriness, and end
+  # function defined in firingneruons_shared.jl
   return _spiking_state_update!(ps.state_now,ps.isfiring,ps.isrefractory,ps.last_fired,
     t_now,ps.neurontype.τ_refractory,ps.neurontype.v_threshold,ps.neurontype.v_reset)
 end
 
-# TODO -> shared file between firing models
-# examines state_now, if above threshold, isfiring and refractory turn true
-# and potential is reset. Finally, removes expired refractoriness
-function _spiking_state_update!(state_now::Vector{R},
-    isfiring::BitArray{1},isrefractory::BitArray{1},
-    last_fired::Vector{R},
-    t_now::R, t_refractory::R,
-    v_threshold::R, v_reset::R) where R<:Real
-  reset_spikes!(isfiring)  
-	@inbounds @simd for i in eachindex(state_now)
-		if state_now[i] > v_threshold
-			state_now[i] =  v_reset
-			isfiring[i] = true
-			last_fired[i] = t_now
-			isrefractory[i] = true
-		# check only when refractory
-		elseif isrefractory[i] && 
-				( (t_now-last_fired[i]) >= t_refractory)
-			isrefractory[i] = false
-		end
-	end
-  return nothing
-end
 
 
 function forward_signal!(t_now::Real,dt::Real,
@@ -106,12 +84,6 @@ function forward_signal!(t_now::Real,dt::Real,
   return nothing
 end
 
-struct NTPoisson <: NeuronType
-  rate::Ref{Float64} # rate is in Hz and is mutable
-  τ_post_current_decay::Float64 # decay of postsynaptic conductance
-end
-
-# PopulationState and local_update!(...) already defined in lif_conductance.jl
 
 
 #=

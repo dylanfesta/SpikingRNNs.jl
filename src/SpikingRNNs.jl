@@ -10,26 +10,11 @@ abstract type NeuronType end
 Base.broadcastable(t::NeuronType)=Ref(t)
 
 
-
 # Dynamical state and memory allocation for a particular group of neurons
-# n is always the number of neurons
+# n is always the number of neurons, and neurontype is the neuron type
 abstract type PopulationState{NT<:NeuronType} end
 nneurons(ps::PopulationState) = ps.n
 
-
-# if the state has an input, this will sum
-# a linear component to it at each step (a constant input current) 
-# the scaling is regulated by the connection weight. (as if this is always 1.0)
-struct InputSimpleOffset <: NeuronType
-end
-
-struct PSSimpleInput{In} <: PopulationState{In}
-  inputtype::In
-  n::Int64
-  function PSSimpleInput(in::N) where N<:NeuronType
-    return new{N}(in,1)
-  end
-end
 
 # Everything related to connection (including plasticity, etc)
 abstract type Connection end
@@ -37,13 +22,20 @@ abstract type Connection end
 abstract type AbstractPopulation end
 
 struct Population{N,PS<:PopulationState,
-    TC<:NTuple{N,Connection},TP<:NTuple{N,PopulationState}
-      } <:AbstractPopulation 
+    TC<:NTuple{N,Connection},TP<:NTuple{N,PopulationState} } <:AbstractPopulation 
+  label::Symbol # I use symbols because it might be a DataFrame column name
   state::PS
   connections::TC
   pre_states::TP
 end
 nneurons(p::Population) = nneurons(p.state)
+function Population(label::String,state::PopulationState,connections,pre_states)
+  return Population(Symbol(label),state,connections,pre_states) 
+end
+function Population(state::PopulationState,connections,pre_states)
+  return Population(Symbol(randstring(3)),state,connections,pre_states) 
+end
+
 
 @inline function n_prepops(p::Population{N,PS,TC,TP}) where {N,PS,TC,TP}
   return N
@@ -55,7 +47,9 @@ struct UnconnectedPopulation{PS<:PopulationState} <:AbstractPopulation
   state::PS
 end
 
-struct RecurrentNetwork{N,TP<:NTuple{N,AbstractPopulation}}
+abstract type AbstractNetwork end
+
+struct RecurrentNetwork{N,TP<:NTuple{N,AbstractPopulation}} <: AbstractNetwork
   dt::Float64
   populations::TP
 end
@@ -73,6 +67,7 @@ end
 function BaseConnection(w::SparseMatrixCSC)
   return BaseConnection{0,NTuple{0,NoPlasticity}}(w,())
 end
+
 
 # fallback functions
 
@@ -116,29 +111,25 @@ function forward_signal!(tnow::Real,dt::Real,p::Population)
   return nothing  
 end
 
-# when the presynaptic is a simple input, just sum linearly to the input vector
-function forward_signal!(tnow::Real,dt::Real,p_post::PopulationState,
-    c::Connection,p_pre::PSSimpleInput)
-  wmat = c.weights
-  for (i,w) in zip(rowvals(wmat),nonzeros(wmat))
-    p_post.input[i] += w
-  end
-  return nothing
-end
+
 
 # this is the network iteration
 function dynamics_step!(t_now::Float64,ntw::RecurrentNetwork)
+  reset_input!.(ntw.populations)
   forward_signal!.(t_now,ntw.dt,ntw.populations)
   local_update!.(t_now,ntw.dt,ntw.populations)
-  reset_input!.(ntw.populations)
   return nothing
 end
 
 dynamics_step!(ntw::RecurrentNetwork) = dynamics_step!(NaN,ntw)
 
-include("./connectivity_utils.jl")
-include("./rate_models.jl")
-include("./lif_current.jl")
+include("connectivity_shared.jl")
+include("inputs_shared.jl")
+include("rate_models.jl")
+include("firingneurons_shared.jl")
+include("lif_current.jl")
+include("lif_exponential.jl")
+include("recorders_shared.jl")
 
 #=
 include("./hawkes.jl")
