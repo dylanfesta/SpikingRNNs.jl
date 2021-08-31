@@ -5,17 +5,18 @@
 
 # if the state has an input, this will sum
 # a linear component to it at each step (a constant input current) 
-# the scaling is regulated by the connection weight. (as if this is always 1.0)
+# the scaling is regulated here, and the weight is ignored
 struct InputSimpleOffset <: NeuronType
+  α::Float64 # scaling constant
 end
 # independent Gaussian noise for each neuron
 # as before, the scaling is in the weight
 struct InputIndependentNormal <: NeuronType
-  alpha::Float64 # scaling constant
+  α::Float64 # scaling constant
 end
 
 struct PSSimpleInput{In} <: PopulationState{In}
-  inputtype::In
+  neurontype::In # not really a neuron, but I keep the name for consistency
   n::Int64
   function PSSimpleInput(in::N) where N<:NeuronType
     return new{N}(in,1)
@@ -26,9 +27,8 @@ end
 # when the presynaptic is a simple input, just sum linearly to the input vector
 function forward_signal!(tnow::Real,dt::Real,p_post::PopulationState,
     c::Connection,p_pre::PSSimpleInput{InputSimpleOffset})
-  wmat = c.weights
-  for (i,w) in zip(rowvals(wmat),nonzeros(wmat))
-    p_post.input[i] += w
+  for i in eachindex(p_post.input)
+    p_post.input[i] += p_pre.neurontype.α
   end
   return nothing
 end
@@ -37,10 +37,10 @@ end
 # the same noise. Postsynaptic neurons must have a τ
 function forward_signal!(tnow::Real,dt::Real,p_post::PopulationState,
     c::Connection,p_pre::PSSimpleInput{InputIndependentNormal})
-  τ = p_post.neurontype.τ
+  # std is α for isolated neuron
+  _reg = sqrt(2*p_post.neurontype.τ/dt)
   for i in eachindex(p_post.input)
-    p_post.input[i] += p_pre.neurontype.alpha*
-      sqrt(2τ)*randn()
+    p_post.input[i] += p_pre.neurontype.α*_reg*randn()
   end
   return nothing
 end

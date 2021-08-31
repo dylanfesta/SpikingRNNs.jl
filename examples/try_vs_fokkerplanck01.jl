@@ -26,11 +26,9 @@ mynt = S.NTLIF(myτ,vth,v_r,τrefr,τpcd)
 myps = S.PSLIF(mynt,1)
 
 ## one static input above threshold 
-hw_in = onesparsemat(myinput)
-conn_in = S.BaseConnection(hw_in)
-in_type = S.InputSimpleOffset()
-in_state = S.PSSimpleInput(in_type)
-mypop = S.Population(myps,(conn_in,),(in_state,))
+hw_in=20.0
+in_state = S.PSSimpleInput(S.InputSimpleOffset(hw_in))
+mypop = S.Population(myps,(S.FakeConnection(),),(in_state,))
 
 
 ## that's it, let's make the network
@@ -38,7 +36,7 @@ myntw = S.RecurrentNetwork(dt,(mypop,))
 
 ## Recorder
 myrec1 = S.RecStateNow(myps,10,dt,Ttot)
-myrec2 = S.RecCountSpikes(myps)
+myrec2 = S.RecCountSpikes(myps,dt)
 
 ## Run!
 times = (0:myntw.dt:Ttot)
@@ -53,7 +51,7 @@ for (k,t) in enumerate(times)
   myrec1(t,k,myntw)
   myrec2(t,k,myntw)
 end
-r0 = S.get_mean_rates(myrec2,Ttot)[1]
+r0 = S.get_mean_rates(myrec2,dt,Ttot)[1]
 ##
 plot(myrec1.times,myrec1.state_now[1,:])
 ##
@@ -89,11 +87,10 @@ plot!(Vks,r0.*ps;color=:white,linewidth=2)
 ## can I use this for the f-I curve?
 
 function f_lif_num(h_in;dt=1E-4,Ttot=10.0)
-  in_state = S.PSSimpleInput(S.InputSimpleOffset())
-  conn_in = S.BaseConnection(onesparsemat(h_in))
-  mypop = S.Population(myps,(conn_in,),(in_state,))
+  in_state = S.PSSimpleInput(S.InputSimpleOffset(h_in))
+  mypop = S.Population(myps,(S.FakeConnection(),),(in_state,))
   myntw = S.RecurrentNetwork(dt,(mypop,))
-  rec = S.RecCountSpikes(myps)
+  rec = S.RecCountSpikes(myps,dt)
   ## Run!
   times = (0:myntw.dt:Ttot)
   # initial conditions
@@ -103,7 +100,7 @@ function f_lif_num(h_in;dt=1E-4,Ttot=10.0)
     S.dynamics_step!(t,myntw)
     rec(t,k,myntw)
   end
-  r0 = S.get_mean_rates(rec,Ttot)[1]
+  r0 = S.get_mean_rates(rec,dt,Ttot)[1]
   return r0
 end
 
@@ -122,7 +119,7 @@ function f_lif_semianalitic(h_in;dv=1E-3)
   for k in ksrev
     krond = k==k_re ? 1.0 : 0.0
     js[k-1] = js[k] - krond
-    ps[k-1] = js[k-1] * mynt.τ / (h_in-Vks[k]+0)
+    ps[k-1] = js[k-1] * mynt.τ / (h_in-Vks[k])
   end
   return inv(dv*sum(ps))
 end

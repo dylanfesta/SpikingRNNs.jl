@@ -7,17 +7,18 @@ struct RecStateNow{PS<:PopulationState}
   isdone::Ref{Bool}
   krec::Int64 # record every k timesteps
   nrecords::Int64 # max recorded steps
-  t_warmup::Float64 # starts to record only after this time 
+  k_warmup::Int64 # starts to record only after this 
   idx_save::Vector{Int64} # which neurons to save. empty -> ALL neurons
   times::Vector{Float64}
   state_now::Matrix{Float64}
   function RecStateNow(ps::PS,everyk::Integer,dt::Float64,Tmax::Float64; 
       idx_save::Vector{Int64}=Int64[],t_warmup::Float64=0.0) where PS
+    k_warmup = floor(Int64,t_warmup/dt)
     nrecs = floor(Int64,(Tmax-t_warmup)/(everyk*dt))
     times = fill(NaN,nrecs)
     nneus = isempty(idx_save) ? nneurons(ps) : length(idx_save)
     states = fill(NaN,nneus,nrecs)
-    return new{PS}(ps,Ref(false),everyk,nrecs,t_warmup,idx_save,times,states)
+    return new{PS}(ps,Ref(false),everyk,nrecs,k_warmup,idx_save,times,states)
   end
 end
 
@@ -29,8 +30,9 @@ function reset!(rec::RecStateNow)
 end
 
 function (rec::RecStateNow)(t::Float64,k::Integer,ntw::AbstractNetwork)
-  kless,_rem=divrem(k,rec.krec)
-  if (_rem != 0) || t<rec.t_warmup || rec.isdone[]
+  kless,_rem=divrem((k-rec.k_warmup),rec.krec)
+  kless += 1 # start from index 0
+  if (_rem != 0) || kless<=0 || rec.isdone[]
     return nothing
   end
   if kless > rec.nrecords 
@@ -50,13 +52,14 @@ end
 # to simplify things I do it for all neurons
 struct RecCountSpikes{PS<:PopulationState}
   ps::PS
-  t_warmup::Float64 # starts to record only after this time 
+  k_warmup::Int64 # starts to record only after this 
   spikecount::Vector{Int64} # how many spikes for each neuron?
-  function RecCountSpikes(ps::PS;
+  function RecCountSpikes(ps::PS,dt::Float64;
       idx_save::Vector{Int64}=Int64[],t_warmup::Float64=0.0) where PS
     nneus = isempty(idx_save) ? nneurons(ps) : length(idx_save)
+    k_warmup = floor(Int64,t_warmup/dt)
     spikecount = fill(0,nneus)
-    return new{PS}(ps,t_warmup,spikecount)
+    return new{PS}(ps,k_warmup,spikecount)
   end
 end
 
@@ -66,7 +69,7 @@ function reset!(rec::RecCountSpikes)
 end
 
 function (rec::RecCountSpikes)(t::Float64,k::Integer,ntw::AbstractNetwork)
-  if t<rec.t_warmup
+  if k<rec.k_warmup
     return nothing
   else
     for i in findall(rec.ps.isfiring)
@@ -77,8 +80,8 @@ function (rec::RecCountSpikes)(t::Float64,k::Integer,ntw::AbstractNetwork)
 end
 
 # utiliy function
-function get_mean_rates(rec::RecCountSpikes,Ttot::Float64)
-  ΔT = Ttot-rec.t_warmup 
+function get_mean_rates(rec::RecCountSpikes,dt::Float64,Ttot::Float64)
+  ΔT = Ttot-(dt*rec.k_warmup)
   return rec.spikecount ./ ΔT
 end
 

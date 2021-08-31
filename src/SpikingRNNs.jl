@@ -18,6 +18,28 @@ nneurons(ps::PopulationState) = ps.n
 
 # Everything related to connection (including plasticity, etc)
 abstract type Connection end
+abstract type PlasticityRule end
+
+struct NoPlasticity <: PlasticityRule end
+
+struct FakeConnection{N,TP<:NTuple{N,PlasticityRule}} <: Connection 
+  weights::SparseMatrixCSC{Float64,Int64}
+  plasticities::TP
+  function FakeConnection()
+    w = sparse(fill(NaN,1,1))
+    return new{0,NTuple{0,NoPlasticity}}(w,())
+  end
+end
+
+struct BaseConnection{N,TP<:NTuple{N,PlasticityRule}} <: Connection
+  weights::SparseMatrixCSC{Float64,Int64}
+  plasticities::TP
+end
+
+function BaseConnection(w::SparseMatrixCSC)
+  return BaseConnection{0,NTuple{0,NoPlasticity}}(w,())
+end
+
 
 abstract type AbstractPopulation end
 
@@ -52,20 +74,6 @@ abstract type AbstractNetwork end
 struct RecurrentNetwork{N,TP<:NTuple{N,AbstractPopulation}} <: AbstractNetwork
   dt::Float64
   populations::TP
-end
-
-# connection and plasticity 
-
-abstract type PlasticityRule end
-struct NoPlasticity <: PlasticityRule end
-
-struct BaseConnection{N,TP<:NTuple{N,PlasticityRule}} <: Connection
-  weights::SparseMatrixCSC{Float64,Int64}
-  plasticities::TP
-end
-
-function BaseConnection(w::SparseMatrixCSC)
-  return BaseConnection{0,NTuple{0,NoPlasticity}}(w,())
 end
 
 
@@ -110,8 +118,6 @@ function forward_signal!(tnow::Real,dt::Real,p::Population)
   end
   return nothing  
 end
-
-
 
 # this is the network iteration
 function dynamics_step!(t_now::Float64,ntw::RecurrentNetwork)
