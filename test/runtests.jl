@@ -89,38 +89,49 @@ end
 end
 
 @testset "2D rate model with input" begin
-  
-  neuron_ei = S.NTReLU(1.,1.)
-  psei  = S.PSRate(neuron_ei,2)
+ 
+  neuron_e_and_i = S.NTReLU(1.,1.)
+  pse  = S.PSRate(neuron_e_and_i,1)
+  psi  = S.PSRate(neuron_e_and_i,1)
 
-  wmat = sparse([ 2.  -3.
-                  2.5  -0.5 ]) 
-  input_mat = let ret=Matrix{Float64}(undef,2,1)
-    ret.=[50.33,2.8]
-    sparse(ret)
-  end
+  (w_ee,w_ie,w_ei,w_ii) = (2.,2.5,-3.,-0.5)
+  wmat = [w_ee  w_ei 
+          w_ie w_ii]
+  make_connection(w)=S.BaseConnection(onesparsemat(w)) 
+  conn_ee = make_connection(w_ee)
+  conn_ei = make_connection(w_ei)
+  conn_ie = make_connection(w_ie)
+  conn_ii = make_connection(w_ii)
 
-  conn_rec = S.BaseConnection(wmat)                  
+  # inputs
+  h_e = 50.33
+  h_i = 2.8
+  h_vec = [h_e,h_i]
 
-  fpoint = - inv(Matrix(wmat)-I)*input_mat
+  fpoint = - inv(Matrix(wmat)-I)*h_vec
+
   ## input connection!
-  in_type = S.InputSimpleOffset()
-  in_state = S.PSSimpleInput(in_type)
-  conn_in = S.BaseConnection(input_mat)
-  pop_ei = S.Population(psei,(conn_rec,conn_in),(psei,in_state))
+  in_state_e = S.PSSimpleInput(S.InputSimpleOffset(h_e))
+  in_state_i = S.PSSimpleInput(S.InputSimpleOffset(h_i))
+  pop_e = S.Population(pse,(conn_ee,conn_ei,S.FakeConnection()),
+    (pse,psi,in_state_e))
+  pop_i = S.Population(psi,(conn_ie,conn_ii,S.FakeConnection()),
+     (pse,psi,in_state_i))
   ##
   dt = 1E-2
   T = 60.0
   times = 0:dt:T 
   ntimes = length(times)
-  mynetwork = S.RecurrentNetwork(dt,(pop_ei,))
+  mynetwork = S.RecurrentNetwork(dt,(pop_e,pop_i))
 
   ei_out = Matrix{Float64}(undef,2,ntimes)
   # initial conditions
-  psei.state_now .= S.ioinv(10.0,psei)
+  pse.state_now .= S.ioinv(10.0,pse)
+  psi.state_now .= S.ioinv(10.0,psi)
 
   for (k,t) in enumerate(times) 
-    ei_out[:,k] = S.iofunction.(psei.state_now,neuron_ei)
+    ei_out[1,k] = S.iofunction(pse.state_now[1],neuron_e_and_i)
+    ei_out[2,k] = S.iofunction(psi.state_now[1],neuron_e_and_i)
     # rate model with constant input  does not really depend on absolute time (first argument)
     S.dynamics_step!(mynetwork)  
   end

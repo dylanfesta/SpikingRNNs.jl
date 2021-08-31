@@ -42,18 +42,16 @@ conn_ie = S.BaseConnection(w_ie)
 conn_ii = S.BaseConnection(w_ii)
 
 # inputs
-h_in_e = onesparsemat(0.0)
-h_in_i = onesparsemat(0.0)
-in_state_e = S.PSSimpleInput(S.InputSimpleOffset())
-in_state_i = S.PSSimpleInput(S.InputSimpleOffset())
-conn_in_e = S.BaseConnection(h_in_e)
-conn_in_i = S.BaseConnection(h_in_i)
+in_state_e = S.PSSimpleInput(S.InputSimpleOffset(0.0))
+in_state_i = S.PSSimpleInput(S.InputSimpleOffset(0.0))
 
 # populations are population states, plus all incoming connections
 # plus presynaptic population states
 
-pop_e = S.Population(pse,(conn_ee,conn_ei,conn_in_e),(pse,psi,in_state_e))
-pop_i = S.Population(psi,(conn_ie,conn_ii,conn_in_i),(pse,psi,in_state_i))
+pop_e = S.Population(pse,(conn_ee,conn_ei,S.FakeConnection()),
+  (pse,psi,in_state_e))
+pop_i = S.Population(psi,(conn_ie,conn_ii,S.FakeConnection()),
+  (pse,psi,in_state_i))
 
 dt = 1E-4
 T = 10.0
