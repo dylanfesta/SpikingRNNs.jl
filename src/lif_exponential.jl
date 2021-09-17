@@ -4,6 +4,8 @@
 # conductance-based (classic) LIF
 
 # threshold-linear input-output function
+# WARNING !
+# TODO  !  τ_output_decay is missing!
 struct NTEIF <: NeuronType
   τ::Float64 # time constant (membrane capacitance)
   g_l::Float64 # conductance leak
@@ -15,7 +17,7 @@ struct NTEIF <: NeuronType
   τ_refractory::Float64 # refractory time
 end
 
-struct PSEIF{NT} <: PopulationState{NT}
+struct PSEIF{NT} <: PSSpikingType{NT}
   neurontype::NT
   n::Int64 # pop size
   state_now::Vector{Float64}
@@ -31,10 +33,9 @@ struct PSEIF{NT} <: PopulationState{NT}
   end
 end
 
-# connection, can use ConnectionLIF
 
 
-## define two main functions here
+# Connection : ConnGeneralIF, defined in firingneruons_shared.jl
 
 function local_update!(t_now::Float64,dt::Float64,ps::PSEIF)
 	# computes the update to internal voltage, given the total input
@@ -45,38 +46,12 @@ function local_update!(t_now::Float64,dt::Float64,ps::PSEIF)
     + ps.neurontype.steep_exp*ps.neurontype.g_l*exp(ps.state_now-ps.neurontype.v_expt)
     + ps.input)
   ps.state_now .+= ps.alloc_dv # v_{t+1} = v_t + dv
-	# update spikes and refractoriness, and end
+	# update spikes and refractoriness, defined in firingneruons_shared.jl
   return _spiking_state_update!(ps.state_now,ps.isfiring,ps.isrefractory,ps.last_fired,
     t_now,ps.neurontype.τ_refractory,ps.neurontype.v_threshold,ps.neurontype.v_reset)
 end
 
 
-function forward_signal!(t_now::Real,dt::Real,
-      pspost::PSEIF,conn::ConnLIF,pspre::PopulationState)
-	post_idxs = rowvals(conn.weights) # postsynaptic neurons
-	weightsnz = nonzeros(conn.weights) # direct access to weights 
-	τ_decay = pspre.neurontype.τ_post_current_decay
-	for _pre in findall(pspre.isfiring)
-		_posts_nz = nzrange(conn.weights,_pre) # indexes of corresponding pre in nz space
-		@inbounds for _pnz in _posts_nz
-			post_idx = post_idxs[_pnz]
-			# update the post currents even when refractory
-			conn.post_current[post_idx] += 
-						weightsnz[_pnz] / τ_decay
-		end
-	end
-	# add the currents to postsynaptic input
-	# ONLY non-refractory neurons
-	post_refr = findall(pspost.isrefractory) # refractory ones
-	@inbounds @simd for i in eachindex(pspost.input)
-		if !(i in post_refr)
-			pspost.input[i] += conn.post_current[i]
-		end
-	end
-  # finally, postsynaptic currents decay in time
-	@inbounds @simd for i in eachindex(conn.post_current)
-		conn.post_current[i] -= dt*conn.post_current[i] / τ_decay
-	end
-  return nothing
-end
+# forward_signal(...) defined in firingneruons_shared.jl
+
 

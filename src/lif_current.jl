@@ -9,10 +9,10 @@ struct NTLIF <: NeuronType
 	v_threshold::Float64 # fixed spiking threshold
 	v_reset::Float64 # reset after spike
 	τ_refractory::Float64 # refractory time
-	τ_post_current_decay::Float64 # decay of postsynaptic currents
+	τ_output_decay::Float64 # decay of postsynaptic currents
 end
 
-struct PSLIF{NT} <: PopulationState{NT}
+struct PSLIF{NT} <: PSGeneralCurrentIFType{NT}
   neurontype::NT
   n::Int64 # pop size
   state_now::Vector{Float64}
@@ -25,20 +25,23 @@ end
 function PSLIF(p::NTLIF,n::Int64)
   PSLIF(p,n,ntuple(_-> zeros(Float64,n),4)...,ntuple(_-> falses(n),2)...)
 end
-
-
-# connection 
-# must keep track of currents
-
-struct ConnLIF{N,TP<:NTuple{N,PlasticityRule}} <: Connection
-  weights::SparseMatrixCSC{Float64,Int64}
-  post_current::Vector{Float64}
-  plasticities::TP
+function PSLIF(τ::Float64,v_threshold::Float64,
+	  v_reset::Float64 ,
+	  τ_refractory::Float64 ,
+	  τ_output_decay::Float64, n::Int64)
+  nt=NTLIF(τ,v_threshold,v_reset,τ_refractory,τ_output_decay)
+  return PSLIF(nt,n)
 end
-function ConnLIF(weights::SparseMatrixCSC)
-  npost=size(weights,2)
-  ConnLIF(weights,zeros(Float64,npost),())
+function reset!(ps::PSLIF)
+  fill!(ps.state_now,0.0)
+  fill!(ps.input,0.0)
+  fill!(ps.last_fired,-Inf)
+  fill!(ps.isfiring,false)
+  fill!(ps.isrefractory,false)
+  return nothing
 end
+
+# Connection : ConnGeneralIF, defined in firingneruons_shared.jl
 
 function local_update!(t_now::Float64,dt::Float64,ps::PSLIF)
 	# computes the update to internal voltage, given the total input
@@ -54,36 +57,18 @@ function local_update!(t_now::Float64,dt::Float64,ps::PSLIF)
 end
 
 
+# analytic stuff
 
-function forward_signal!(t_now::Real,dt::Real,
-      pspost::PSLIF,conn::ConnLIF,pspre::PopulationState)
-	post_idxs = rowvals(conn.weights) # postsynaptic neurons
-	weightsnz = nonzeros(conn.weights) # direct access to weights 
-	τ_decay = pspre.neurontype.τ_post_current_decay
-	for _pre in findall(pspre.isfiring)
-		_posts_nz = nzrange(conn.weights,_pre) # indexes of corresponding pre in nz space
-		@inbounds for _pnz in _posts_nz
-			post_idx = post_idxs[_pnz]
-			# update the post currents even when refractory
-			conn.post_current[post_idx] += 
-						weightsnz[_pnz] / τ_decay
-		end
-	end
-	# add the currents to postsynaptic input
-	# ONLY non-refractory neurons
-	post_refr = findall(pspost.isrefractory) # refractory ones
-	@inbounds @simd for i in eachindex(pspost.input)
-		if !(i in post_refr)
-			pspost.input[i] += conn.post_current[i]
-		end
-	end
-  # finally, postsynaptic currents decay in time
-	@inbounds @simd for i in eachindex(conn.post_current)
-		conn.post_current[i] -= dt*conn.post_current[i] / τ_decay
-	end
-  return nothing
+function expected_period_norefr(neu::NTLIF,input)
+	return expected_period_norefr(neu.τ,neu.v_reset,neu.v_threshold,input)
 end
 
+function expected_period_norefr(τ::Real,vr::Real,vth::Real,input::Real)
+	return τ*log( (input-vr)/(input-vth) )
+end
+
+
+# forward_signal(...) defined in firingneruons_shared.jl
 
 
 #=
@@ -93,7 +78,7 @@ struct PopLIF <: Population
 	v_threshold::Float64 # fixed spiking threshold
 	v_reset::Float64 # reset after spike
 	τ_refractory::Float64 # refractory time
-	τ_post_current_decay::Float64 # decay of postsynaptic currents
+	τ_output_decay::Float64 # decay of postsynaptic currents
 end
 
 struct PSLIF{P} <: PopulationState
@@ -153,7 +138,7 @@ end
 function send_signal!(t_now::Float64,conn::ConnectionLIF)
 	post_idxs = rowvals(conn.weights) # postsynaptic neurons
 	weightsnz = nonzeros(conn.weights) # direct access to weights 
-	τ_decay = conn.preps.population.τ_post_current_decay
+	τ_decay = conn.preps.population.τ_output_decay
 	for _pre in findall(conn.preps.isfiring)
 		_posts_nz = nzrange(conn.weights,_pre) # indexes of corresponding pre in nz space
 		@inbounds for _pnz in _posts_nz
@@ -176,7 +161,7 @@ end
 
 # postsynaptic currents decay in time
 function dynamics_step!(t_now::Real,dt::Real,conn::ConnectionLIF)
-	τ_decay = conn.preps.population.τ_post_current_decay
+	τ_decay = conn.preps.population.τ_output_decay
 	@inbounds @simd for i in eachindex(conn.post_current)
 		conn.post_current[i] -= dt*conn.post_current[i] / τ_decay
 	end
@@ -193,13 +178,6 @@ end
   return nothing
 end
 
-function expected_period_norefr(neu::PopLIF,input)
-	return expected_period_norefr(neu.τ,neu.v_reset,neu.v_threshold,input)
-end
-
-function expected_period_norefr(τ::Real,vr::Real,vth::Real,input::Real)
-	return τ*log( (input-vr)/(input-vth) )
-end
 
 
 		for cc = 1:Ncells

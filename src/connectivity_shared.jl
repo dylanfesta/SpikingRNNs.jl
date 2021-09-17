@@ -60,6 +60,42 @@ function _sparse_wmat(npost::Integer,npre::Integer,p::Real,make_weights!::Functi
   return wmat
 end
 
+function sparse_wmat_rowfun(make_a_row::Function,
+    npost::Integer,npre::Integer,p::Real;no_autapses::Bool=false)
+  wmat = sprand(Float64,npost,npre,p)
+  if no_autapses
+    no_autapses!(wmat)
+  end
+  rw = rowvals(wmat)
+  wvec = nonzeros(wmat)
+  for r in unique(rw)
+    ridx = r .== rw
+    n = count(nidx)
+    newrow = make_a_row(n)
+    wvec .= newrow
+  end
+  return wmat
+end
+
+function sparse_constant_wmat(npost::Integer,npre::Integer,p::Real,j_val::Real ; 
+    scal::Float64=1.0, # final scaling
+    no_autapses::Bool=true, # no autapses ?
+    rowsum::Union{Nothing,Float64}=nothing)
+  make_weights=function(n::Integer)
+    ret=fill(j_val,n)
+    if !isnothing(rowsum)
+      ret .*= rowsum / sum(ret)
+    end
+    if scal != 1
+      lmul!(scal,ret)
+    end
+    return ret
+  end
+  return sparse_wmat_rowfun(make_weights,npost,npre,p;no_autapses=no_autapses)
+end
+
+
+
 function sparse_wmat_lognorm(npost::Integer,npre::Integer,
     p::Real,μ::Real,σ::Real;
     noself::Bool=true, # no autapses ?
@@ -86,6 +122,7 @@ function sparse_wmat(npost::Integer,npre::Integer,p::Real,j_val::Real ;
   return _sparse_wmat(npost,npre,p,make_weights;
     scal=scal,noself=noself,rowsum=rowsum)
 end
+
 
 
 

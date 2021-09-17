@@ -3,24 +3,11 @@
 # Inputs 
 
 
-# if the state has an input, this will sum
-# a linear component to it at each step (a constant input current) 
+
+# Constant input current
 # the scaling is regulated here, and the weight is ignored
 struct InputSimpleOffset <: NeuronType
   α::Float64 # scaling constant
-end
-# independent Gaussian noise for each neuron
-# as before, the scaling is in the weight
-struct InputIndependentNormal <: NeuronType
-  α::Float64 # scaling constant
-end
-
-struct PSSimpleInput{In} <: PopulationState{In}
-  neurontype::In # not really a neuron, but I keep the name for consistency
-  n::Int64
-  function PSSimpleInput(in::N) where N<:NeuronType
-    return new{N}(in,1)
-  end
 end
 
 
@@ -33,6 +20,12 @@ function forward_signal!(tnow::Real,dt::Real,p_post::PopulationState,
   return nothing
 end
 
+# independent Gaussian noise for each neuron
+# weight is ignored
+struct InputIndependentNormal <: NeuronType
+  α::Float64 # scaling constant
+end
+
 # the connection is ignored: all neurons of the same population receive
 # the same noise. Postsynaptic neurons must have a τ
 function forward_signal!(tnow::Real,dt::Real,p_post::PopulationState,
@@ -42,6 +35,73 @@ function forward_signal!(tnow::Real,dt::Real,p_post::PopulationState,
   for i in eachindex(p_post.input)
     p_post.input[i] += p_pre.neurontype.α*_reg*randn()
   end
+  return nothing
+end
+
+
+# Arbitrary 1D time-dependent function
+# injected directly as input current
+# the input is regulated by the weight matrix
+
+struct InputSomeFunction <: NeuronType
+  f::Function # f(t) = input
+end
+function forward_signal!(tnow::Real,dt::Real,p_post::PopulationState,
+    c::Connection,p_pre::PSSimpleInput{InputSomeFunction})
+  in_t::Float64 = p_pre.neurontype.f(tnow)
+  ws = nonzeros(c.weights)
+  w_idx = rowvals(c.weights)
+  for (i,w) in zip(w_idx,ws)
+    p_post.input[i] += w*in_t
+  end
+  return nothing
+end
+
+# Fixed spiketrain as input
+abstract type AbstractSpikeTrain <: NeuronType end
+struct InputFixedSpiketrain <: AbstractSpikeTrain
+  trains::Vector{Vector{Float64}} # one neuron -> one vector of spiketimes
+  τ_output_decay::Float64
+end
+
+struct PSFixedSpiketrain{NT} <: PSSpikingType{NT where NT <: InputFixedSpiketrain}
+  neurontype::NT
+  n::Int64 # pop size
+  isfiring::BitArray{1}
+  counter::Vector{Int64} # keep track of elapsed spikes (instead of doing a full search)
+end
+function PSFixedSpiketrain(nt::InputFixedSpiketrain)
+  n = length(nt.trains)
+  isfiring=falses(n)
+  counter=ones(n)
+  return PSFixedSpiketrain{InputFixedSpiketrain}(nt,n,isfiring,counter)
+end
+function PSFixedSpiketrain(train::Vector{Vector{Float64}},τ::Real)
+  return PSFixedSpiketrain(InputFixedSpiketrain(train,τ))
+end
+function reset_input!(ps::PSFixedSpiketrain)
+  return nothing
+end
+
+
+function local_update!(t_now::Float64,dt::Float64,ps::PSFixedSpiketrain)
+  reset_spikes!(ps)
+  for neu in (1:ps.n)
+    # pick the spiketrain of each neuron, at the counter index
+    c = ps.counter[neu]
+    @inbounds if checkbounds(Bool,ps.neurontype.trains[neu],c)
+      t_signal = ps.neurontype.trains[neu][c]
+      if t_signal < t_now+dt
+        ps.isfiring[neu] = true # neuron is firing
+        ps.counter[neu] += 1    # move counter forward
+      end
+    end
+  end
+  return nothing
+end
+function reset!(ps::PSFixedSpiketrain)
+  reset_spikes!(ps)
+  fill!(ps.counter,1)
   return nothing
 end
 
@@ -59,7 +119,7 @@ struct NTPoissonCO <: NeuronType
   v_reversal::Float64 # reversal potential that affects postsynaptic neurons
 end
 
-struct PSPoisson{NT} <: PopulationState{NT}
+struct PSPoisson{NT} <: PSSpikingType{NT}
   neurontype::NT
   n::Int64 # pop size
 	isfiring::BitArray{1} # firing will be i.i.d. Poisson
@@ -67,6 +127,9 @@ struct PSPoisson{NT} <: PopulationState{NT}
   function PSPoisson(p::NT,n) where NT<:NeuronType
     new{NT}(p,n,falses(n),zeros(Float64,n))
   end
+end
+function reset_input!(ps::PSPoisson)
+  return nothing
 end
 
 # >>> TO DO
