@@ -40,10 +40,8 @@ function scale_rows!(x::Real,mat::SparseMatrixCSC)
   return mat
 end
 
-# scal is a product at the end, for example set to (-1) for inhibitory neurons,
-# or 1/sqrt(N) etc
 function _sparse_wmat(npost::Integer,npre::Integer,p::Real,make_weights!::Function ; 
-    scal::Float64=1.0, # final scaling
+    scal::Float64=1.0, # final scaling (e.g. -1 for inhibitory neurons)
     noself::Bool=true, # no autapses ?
     rowsum::Union{Nothing,Float64}=nothing) #mean of each row (before scal)
   wmat = sprand(Float64,npost,npre,p)

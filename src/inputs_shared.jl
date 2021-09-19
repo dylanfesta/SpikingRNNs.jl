@@ -132,18 +132,39 @@ function reset_input!(ps::PSPoisson)
   return nothing
 end
 
-# >>> TO DO
-# Note: to have local updates, you should use a ConnLIFCO_fixed from the Poisson
-# to the connected population(s), but also include 
-# an UnconnectedPopulation with the 
-# Poissoin population state in it when you define the network.
 
-# function local_update!(t_now::Float64,dt::Float64,ps::PSPoisson)
-#   c = dt*ps.rate[]
-#   @assert c < 1 "Frequency of Poisson input too high!"
-#   rand!(ps.isfiring_alloc)
-#   map!(r->r < c, ps.isfiring, ps.isfiring_alloc)
-#   return nothing
-# end
+# Poisson with frequency folloing some function
 
-# # forward_signal!(...)  no need to redefine it! 
+struct InputPoissonFt <: NeuronType
+  ratefunction::Function # sigature ::Float64 -> Float64
+  τ_output_decay::Float64
+end
+struct PSInputPoissonFt{NT} <: PSSpikingType{NT}
+  neurontype::NT
+  n::Int64 # pop size
+	isfiring::BitArray{1} 
+  isfiring_alloc::Vector{Float64} # allocate probabilities
+end
+function PSInputPoissonFt(ratefun,τ,n)
+  isfiring = falses(n)
+  isfi_alloc = zeros(n)
+  return PSInputPoissonFt(InputPoissonFt(ratefun,τ),n,isfiring,isfi_alloc)
+end
+
+function reset!(ps::PSInputPoissonFt)
+  fill!(ps.isfiring,false)
+  return nothing
+end
+function reset_input!(ps::PSInputPoissonFt)
+  return nothing
+end
+
+function local_update!(t_now::Float64,dt::Float64,ps::PSInputPoissonFt)
+  reset_spikes!(ps)
+  _rate = ps.neurontype.ratefunction(t_now)
+  Random.rand!(ps.isfiring_alloc)
+  @.  ps.isfiring = ps.isfiring_alloc < _rate*dt
+  return nothing
+end
+
+

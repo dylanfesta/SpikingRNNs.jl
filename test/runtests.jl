@@ -215,7 +215,7 @@ end
   @test all(isapprox.(train2,train2_sim;atol=1.1dt))
   @test all(isapprox.(train_e_sim,sort(vcat(train1_sim,train2_sim));atol=1.1dt))
   # but the error between train_e_sim and train1, train2 is up to 2dt!
-  ## part 2
+  ## part 2, expected period of LIF neuron
   dt = 5E-4
   Ttot = 3.0 
   myτ = 0.1

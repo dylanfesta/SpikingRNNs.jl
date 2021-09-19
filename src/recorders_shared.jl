@@ -137,7 +137,25 @@ function get_spiketimes_spikeneurons(rec::RecSpikes)
   _idx = @. !isnan(rec.spiketimes)
   return   rec.spiketimes[_idx],rec.spikeneurons[_idx]
 end
+function get_spiketimes_dictionary(rec::RecSpikes)
+  spk_t,spk_neu = get_spiketimes_spikeneurons(rec)
+  ret=Dict{Int64,Vector{Float64}}()
+  for neu in unique(spk_neu)
+    idx = spk_neu.==neu
+    ret[neu] = spk_t[idx]
+  end
+  return ret
+end
 
+function get_mean_rates(rec::RecSpikes,dt::Float64,Ttot::Float64)
+  ΔT = Ttot-rec.t_warmup
+  dict = get_spiketimes_dictionary(rec)
+  ret = Dict{Int64,Float64}()
+  for (neu,spks) in pairs(dict)
+    ret[neu] = length(spks)/ΔT
+  end
+  return ret
+end
 
 # adds a pulse at time of spiking
 # voltage_traces : rows are neurons, columns are timesteps
@@ -172,7 +190,7 @@ struct RecWeights
   k_warmup::Int64 # starts to record only after this 
   idx_save::Vector{CartesianIndex{2}} # which weights to save
   times::Vector{Float64}
-  weight_now::Matrix{Float64}
+  weights_now::Matrix{Float64}
   function RecWeights(conn::Connection,everyk::Integer,dt::Float64,
       Tmax::Float64; 
       idx_save::Vector{CartesianIndex{2}}=CartesianIndex{2}[],
@@ -188,10 +206,19 @@ struct RecWeights
       idx_save = CartesianIndex.(x,y)
     end
     nweights = length(idx_save)
-    weight_now = fill(NaN,nweights,nrecs)
-    return new(conn.weights,Ref(false),everyk,nrecs,k_warmup,idx_save,times,weight_now)
+    weights_now = fill(NaN,nweights,nrecs)
+    return new(conn.weights,Ref(false),everyk,nrecs,k_warmup,idx_save,times,weights_now)
   end
 end
+
+
+function reset!(rec::RecWeights)
+  fill!(rec.times,NaN)
+  fill!(rec.weights_now,NaN)
+  rec.isdone[]=false
+  return nothing
+end
+
 
 function (rec::RecWeights)(t::Float64,k::Integer,ntw::AbstractNetwork)
   # I assume k starts from 1, which corresponds to t=0
@@ -204,7 +231,7 @@ function (rec::RecWeights)(t::Float64,k::Integer,ntw::AbstractNetwork)
     rec.isdone[]=true
     return nothing
   end
-  rec.state_now[:,kless] .= rec.weights[rec.idx_save]
+  rec.weights_now[:,kless] .= rec.weights[rec.idx_save]
   rec.times[kless] = t
   return nothing
 end
