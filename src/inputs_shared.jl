@@ -58,18 +58,17 @@ function forward_signal!(tnow::Real,dt::Real,p_post::PopulationState,
 end
 
 # Fixed spiketrain as input
-abstract type AbstractSpikeTrain <: NeuronType end
-struct InputFixedSpiketrain <: AbstractSpikeTrain
+struct InputFixedSpiketrain <: NeuronType
   trains::Vector{Vector{Float64}} # one neuron -> one vector of spiketimes
   τ_output_decay::Float64
 end
-
 struct PSFixedSpiketrain{NT} <: PSSpikingType{NT where NT <: InputFixedSpiketrain}
   neurontype::NT
   n::Int64 # pop size
   isfiring::BitArray{1}
   counter::Vector{Int64} # keep track of elapsed spikes (instead of doing a full search)
 end
+
 function PSFixedSpiketrain(nt::InputFixedSpiketrain)
   n = length(nt.trains)
   isfiring=falses(n)
@@ -83,10 +82,9 @@ function reset_input!(ps::PSFixedSpiketrain)
   return nothing
 end
 
-
 function local_update!(t_now::Float64,dt::Float64,ps::PSFixedSpiketrain)
   reset_spikes!(ps)
-  for neu in (1:ps.n)
+  for neu in (1:ps.n) # WARNING : at most 1 spike per neuron in 1 dt
     # pick the spiketrain of each neuron, at the counter index
     c = ps.counter[neu]
     @inbounds if checkbounds(Bool,ps.neurontype.trains[neu],c)
@@ -109,7 +107,7 @@ end
 # Poisson firing
 struct NTPoisson <: NeuronType
   rate::Ref{Float64} # rate is in Hz and is mutable
-  τ_post_current_decay::Float64 # decay of postsynaptic conductance
+  τ_output_decay::Float64 # decay of postsynaptic conductance
 end
 
 # conductance based Poisson firing
@@ -124,14 +122,27 @@ struct PSPoisson{NT} <: PSSpikingType{NT}
   n::Int64 # pop size
 	isfiring::BitArray{1} # firing will be i.i.d. Poisson
   isfiring_alloc::Vector{Float64} # allocate probabilities
-  function PSPoisson(p::NT,n) where NT<:NeuronType
-    new{NT}(p,n,falses(n),zeros(Float64,n))
-  end
+end
+function PSPoisson(p::NT,n) where NT<:NeuronType
+  return PSPoisson{NT}(p,n,falses(n),zeros(Float64,n))
+end
+function PSPoisson(rate::Real,τ_decay::Real,n::Integer)
+  nt = NTPoisson(rate,τ_decay)
+  return PSPoisson{NTPoisson}(nt,n,falses(n),zeros(Float64,n))
 end
 function reset_input!(ps::PSPoisson)
   return nothing
 end
-
+function reset!(ps::PSPoisson)
+  return nothing
+end
+function local_update!(t_now::Float64,dt::Float64,ps::PSPoisson)
+  reset_spikes!(ps)
+  Random.rand!(ps.isfiring_alloc)
+  _rate = ps.neurontype.rate[]
+  @.  ps.isfiring = ps.isfiring_alloc < _rate*dt
+  return nothing
+end
 
 # Poisson with frequency folloing some function
 

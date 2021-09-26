@@ -1,5 +1,7 @@
 
 
+
+
 ### Triplets rule
 struct PlasticityTriplets <: PlasticityRule
   τplus::Float64
@@ -31,7 +33,8 @@ function reset!(pl::PlasticityTriplets)
 end
 
 function plasticity_update!(t_now::Real,dt::Real,
-     pspost::PSSpikingType,conn::Connection,pspre::PopulationState,plast::PlasticityTriplets)
+     pspost::PSSpikingType,conn::Connection,pspre::PSSpikingType,
+     plast::PlasticityTriplets)
   # elements of sparse matrix that I need
   _colptr = SparseArrays.getcolptr(conn.weights) # column indexing
 	row_idxs = rowvals(conn.weights) # postsynaptic neurons
@@ -95,7 +98,7 @@ function reset!(pl::PlasticityInhibitoryVogels)
 end
 
 function plasticity_update!(t_now::Real,dt::Real,
-     pspost::PSSpikingType,conn::Connection,pspre::PopulationState,
+     pspost::PSSpikingType,conn::Connection,pspre::PSSpikingType,
      plast::PlasticityInhibitoryVogels)
   # elements of sparse matrix that I need
   _colptr = SparseArrays.getcolptr(conn.weights) # column indexing

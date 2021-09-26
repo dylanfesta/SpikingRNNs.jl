@@ -35,15 +35,27 @@ struct BaseConnection{N,PL<:NTuple{N,PlasticityRule}} <: Connection{N}
   weights::SparseMatrixCSC{Float64,Int64}
   plasticities::PL
 end
-
 function BaseConnection(w::SparseMatrixCSC)
   return BaseConnection{0,NTuple{0,NoPlasticity}}(w,())
+end
+
+# weights evolve according to plasticity rules and pre-post activity
+# BUT neurons do not exchange signals of any kind
+# this works well in tandem with input neurons with specific spike times
+# to test plasticity rules
+struct ConnectionPlasticityTest{N,PL<:NTuple{N,PlasticityRule}} <: Connection{N}
+  weights::SparseMatrixCSC{Float64,Int64}
+  plasticities::PL
+end
+function ConnectionPlasticityTest(weights::SparseMatrixCSC,
+    (plasticities::PlasticityRule)...)
+  npost=size(weights,2)
+  return ConnectionPlasticityTest(weights,plasticities)
 end
 
 @inline function n_plasticity_rules(c::Connection{N}) where N
   return N
 end
-
 
 struct PSSimpleInput{In} <: PopulationState{In}
   neurontype::In # not really a neuron, but I keep the name for consistency
@@ -159,7 +171,6 @@ function plasticity_update!(tnow::Real,dt::Real,p::AbstractPopulation)
   end
   return nothing  
 end
-
 
 
 # this is the network iteration
