@@ -5,6 +5,7 @@
 test/Manifest.toml
 docs/Manifest.toml
 /docs/build/
+/tmp*
 
 *.code-workspace
 .directory

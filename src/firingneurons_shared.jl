@@ -15,6 +15,7 @@ struct ConnGeneralIF{N,TP<:NTuple{N,PlasticityRule}} <: Connection{N}
   post_trace::Vector{Float64}
   plasticities::TP
 end
+
 function ConnGeneralIF(weights::SparseMatrixCSC)
   npost=size(weights,2)
   return ConnGeneralIF(weights,zeros(Float64,npost),())

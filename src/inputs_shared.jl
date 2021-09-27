@@ -178,4 +178,66 @@ function local_update!(t_now::Float64,dt::Float64,ps::PSInputPoissonFt)
   return nothing
 end
 
+# Poisson with frequency following a *multi dimensional* function
+# useful for input patterns
 
+struct InputPoissonFtMulti <: NeuronType
+  ratefunction::Function # sigature ::Float64 -> ::Vector{Float64}
+  τ_output_decay::Float64
+end
+struct PSInputPoissonFtMulti{NT} <: PSSpikingType{NT}
+  neurontype::NT
+  n::Int64 # pop size
+	isfiring::BitArray{1} 
+  isfiring_alloc::Vector{Float64} # allocate probabilities
+end
+function PSInputPoissonFtMulti(ratefun,τ,n)
+  isfiring = falses(n)
+  isfi_alloc = zeros(n)
+  return PSInputPoissonFtMtuli(InputPoissonFtMulti(ratefun,τ),n,isfiring,isfi_alloc)
+end
+function reset!(ps::PSInputPoissonFtMulti)
+  fill!(ps.isfiring,false)
+  return nothing
+end
+function reset_input!(ps::PSInputPoissonFtMulti)
+  return nothing
+end
+function local_update!(t_now::Float64,dt::Float64,ps::PSInputPoissonFtMulti)
+  reset_spikes!(ps)
+  Random.rand!(ps.isfiring_alloc)
+  _rates::Vector{Float64} = ps.neurontype.ratefunction(t_now)
+  @.  ps.isfiring = ps.isfiring_alloc < _rates*dt
+  return nothing
+end
+
+
+
+## training with patterns with no consecutive repetitions
+function _patterns_train_uniform(Npatt::Integer,Δt::Real,Ttot::Real)
+  times = collect(0.0:Δt:Ttot)
+  nt = length(times)
+  nreps = ceil(Integer,nt/Npatt)
+  last_patt = Npatt+1
+  _seq = Vector{Vector{Int64}}(undef,nreps)
+  for s in eachindex(_seq)
+    _ss = shuffle(1:Npatt)
+    while _ss[1] == last_patt
+      shuffle!(_ss)
+    end
+    last_patt = _ss[end]
+    _seq[s] = _ss
+  end
+  patt_seq = vcat(_seq...)[1:nt]
+  return times,patt_seq
+end
+
+function binary_patterns_mat(Nneus::Integer,pattern_idx,low_val::Float64,
+    high_val::Real)
+  Npatt=length(pattern_idx)
+  ret = fill(low_val,Nneus,Npatt+1)
+  for p in 1:Npatt
+    ret[pattern_idx[p].neupost,p] .= high_val
+  end
+  return ret
+end

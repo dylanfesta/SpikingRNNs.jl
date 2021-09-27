@@ -5,27 +5,27 @@ HawkesSimulator.jl
 =#
 
 
+# TO DO , with Claudia's help
+# struct NTPoisson <: NeuronType
+#   τ_refractory::Float64 # refractory time
+#   τ_output_decay::Float64 #
+# end
 
-struct NTPoisson <: NeuronType
-  τ_refractory::Float64 # refractory time
-  τ_output_decay::Float64 #
-end
-
-struct PSPoisson{NT} <: PSGeneralCurrentIFType{NT}
-  neurontype::NT
-  n::Int64 # pop size
-  state_now::Vector{Float64}
-  input::Vector{Float64}
-	last_fired::Vector{Float64}
-	isfiring::BitArray{1}
-	isrefractory::BitArray{1}
-  function PSPoisson(τ_refr::Real,τ_output_decay,n::Integer)
-    neu = NTPoisson(τ_refr,τ_output_decay)
-    zz = _ -> zeros(Float64,n)
-    ff = _ -> falses(n)
-    new{NTPoisson}(neu,n,ntuple(zz,3)...,ntuple(ff,2)...)
-  end
-end
+# struct PSPoisson{NT} <: PSGeneralCurrentIFType{NT}
+#   neurontype::NT
+#   n::Int64 # pop size
+#   state_now::Vector{Float64}
+#   input::Vector{Float64}
+# 	last_fired::Vector{Float64}
+# 	isfiring::BitArray{1}
+# 	isrefractory::BitArray{1}
+#   function PSPoisson(τ_refr::Real,τ_output_decay,n::Integer)
+#     neu = NTPoisson(τ_refr,τ_output_decay)
+#     zz = _ -> zeros(Float64,n)
+#     ff = _ -> falses(n)
+#     new{NTPoisson}(neu,n,ntuple(zz,3)...,ntuple(ff,2)...)
+#   end
+# end
 
 
 # Connection : ConnGeneralIF, defined in firingneruons_shared.jl
