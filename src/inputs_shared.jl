@@ -4,7 +4,7 @@
 
 
 
-# Constant input current
+# Constant input current (mostly for testing purposes)
 # the scaling is regulated here, and the weight is ignored
 struct InputSimpleOffset <: NeuronType
   α::Float64 # scaling constant
@@ -19,6 +19,18 @@ function forward_signal!(tnow::Real,dt::Real,p_post::PopulationState,
   end
   return nothing
 end
+
+# if the receiver is a spiking type, update only when NOT refractory
+function forward_signal!(tnow::Real,dt::Real,p_post::PSSpikingType,
+    c::Connection,p_pre::PSSimpleInput{InputSimpleOffset})
+  for i in eachindex(p_post.input)
+    if ! p_post.isrefractory[i]
+      p_post.input[i] += p_pre.neurontype.α
+    end
+  end
+  return nothing
+end
+
 
 # independent Gaussian noise for each neuron
 # weight is ignored

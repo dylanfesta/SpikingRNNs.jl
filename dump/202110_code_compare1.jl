@@ -2,7 +2,7 @@
 Here I show the exact correspondence
 my spiking implementation and code by
 Litwin-Kumar / Auguste Schulz
-For one I neuron connected to one E neuron
+For one E neuron only
 =#
 
 push!(LOAD_PATH, abspath(@__DIR__,".."))
@@ -12,52 +12,13 @@ using Plots,NamedColors ; theme(:dark)
 using SparseArrays 
 using SpikingRNNs; const global S = SpikingRNNs
 using BenchmarkTools
-using ProgressMeter
+using FFTW
 
 function onesparsemat(w::Real)
   return sparse(fill(w,(1,1)))
 end
 
 ##
-
-
-function initweights(Ne, Ni, p, Jee0, Jei0, Jie, Jii)
-	""" initialise the connectivity weight matrix based on initial
-	E-to-E Jee0 initial weight e to e plastic
-	I-to-E Jei0 initial weight i to e plastic
-	E-to-I Jie0 constant weight e to i not plastic
-	I-to-I Jii constant weight i to i not plastic"""
-	Ncells = Ne+Ni
-
-	# initialise weight matrix
-	# w[i,j] is the weight from pre- i to postsynaptic j neuron
-	weights = zeros(Float64,Ncells,Ncells)
-	weights[1:Ne,1:Ne] .= Jee0
-	weights[1:Ne,(1+Ne):Ncells] .= Jie
-	weights[(1+Ne):Ncells,1:Ne] .= Jei0
-	weights[(1+Ne):Ncells,(1+Ne):Ncells] .= Jii
-	# set diagonal elements to 0
-	# for cc = 1:Ncells
-	# 	weights[cc,cc] = 0
-	# end
-	weights[diagind(weights)] .= 0.0
-	# ensure that the connection probability is only p
-	weights = weights.*(rand(Ncells,Ncells) .< p)
-	return weights
-end
-function weightpars(;Ne = 4000, Ni = 1000, p = 0.2 )
-	"""Ne, Ni number of excitatory, inhibitory neurons
-	p initial connection probability"""
-	Jee0 = 2.86 #initial weight e to e plastic
-	Jei0 = 48.7 #initial weight i to e plastic
-	Jie = 1.27 #constant weight e to i not plastic
-	Jii = 16.2 #constant weight i to i not plastic
-	return Ne,Ni,p,Jee0,Jei0,Jie,Jii
-end
-initweights() = initweights(weightpars()...)
-
-weights = initweights()
-weights_sp = sparse(permutedims(weights))
 
 # this is a bare-bone version of the Schulz code
 function runsimulation_static_simplified2(Ne::Integer,Ni::Integer,
@@ -69,10 +30,10 @@ function runsimulation_static_simplified2(Ne::Integer,Ni::Integer,
 		# x corresponds to external
 
 		#membrane dynamics
-		taue = 30 #e membrane time constant ms
+		taue = 20 #e membrane time constant ms
 		taui = 20 #i membrane time constant ms
 		vreste = -60 #e resting potential mV
-		vresti = -70 #i resting potential mV
+		vresti = -60 #i resting potential mV
 		vpeak = 20 #cutoff for voltage.  when crossed, record a spike and reset mV
 		eifslope = 2 #eif slope parameter mV
 		C = 300 #capacitance pF
@@ -82,15 +43,15 @@ function runsimulation_static_simplified2(Ne::Integer,Ni::Integer,
 		thrchange = false # can be switched off to have vth constant at vth0
 		ath = 10 #increase in threshold post spike mV
 		tauth = 30 #threshold decay timescale ms
-		vreset = -70 #reset potential mV
-		taurefrac = 10 #absolute refractory period ms
+		vreset = -60 #reset potential mV
+		taurefrac = 50 #absolute refractory period ms
     
 		# total number of neurons
 		Ncells = Ne+Ni
 
     # constant input
     in_const = fill(0.0,Ncells)
-    in_const[1:Ne] .= 21.0
+    in_const[1] = -51.0 - vreste
 
 		# synaptic kernel
 		tauerise = 1 #e synapse rise time
@@ -181,9 +142,9 @@ function runsimulation_static_simplified2(Ne::Integer,Ni::Integer,
 							end
 						else
 							dv = (vresti - v[cc])/taui +
-                 ge*(erev-v[cc])/C + gi*(irev-v[cc])/C +
-                  in_const[cc]/taui
-							v[cc] += dt*dv
+                 ge*(erev-v[cc])/C + gi*(irev-v[cc])/C
+                 +  in_const[cc]/taui
+							v[cc] += dt*dv;
 							if v[cc] > vth0
 								spiked[cc] = true
 							end
@@ -236,26 +197,21 @@ function runsimulation_static_simplified2(Ne::Integer,Ni::Integer,
 end 
 
 ##
-vtest = let dt=0.1,T=5000,
-  Ne=4000,Ni=1000,_weights=weights,
+vtest = let dt=0.1,T=500,
+  _w = 50.0,
+  Ne=2,Ni=0,weights=[0.0 _w ; 0.0 0.0];
   spiketimes=Matrix{Int32}(undef,1000,1000)
   runsimulation_static_simplified2(Ne,Ni,weights,spiketimes;
    dt=dt, T=T)[2]
 end
 
-_ = let plt = plot(),nneu=18,
-  ts = (1:size(vtest,2)).*0.1E-3
-  plot!(plt,ts,vtest[nneu,:];linewidth=2)
-end
-
 ##
 #=
 
-		#membrane dynamics
-		taue = 30 #e membrane time constant ms
+		taue = 20 #e membrane time constant ms
 		taui = 20 #i membrane time constant ms
-		vreste = -60 #e resting potential mV
-		vresti = -70 #i resting potential mV
+		vreste = -70 #e resting potential mV
+		vresti = -62 #i resting potential mV
 		vpeak = 20 #cutoff for voltage.  when crossed, record a spike and reset mV
 		eifslope = 2 #eif slope parameter mV
 		C = 300 #capacitance pF
@@ -265,15 +221,19 @@ end
 		thrchange = false # can be switched off to have vth constant at vth0
 		ath = 10 #increase in threshold post spike mV
 		tauth = 30 #threshold decay timescale ms
-		vreset = -70 #reset potential mV
+		vreset = -60 #reset potential mV
 		taurefrac = 50 #absolute refractory period ms
 		aw_adapt = 4 #adaptation parameter a nS conductance
 		bwfactor = 100
 		bw_adapt = bwfactor*0.805 #adaptation parameter b pA current
 
     # constant input
-    in_const = fill(0.0,Ncells)
-    in_const[2] = -51.0 - vreste
+    in_const_e = -51.0 - vreste
+    in_const_i = -51.0 - vresti
+
+
+		# total number of neurons
+		Ncells = Ne+Ni
 
 		# synaptic kernel
 		tauerise = 1 #e synapse rise time
@@ -285,26 +245,23 @@ end
 
 ## 
 # time in seconds, voltage in mV
-Ne,Ni = 4000,1000
 dt = 0.1E-3
-Ttot = 5.0
-myτe = 30E-3 # seconds
-myτi = 20E-3 # seconds
+Ttot = 0.5
+myτ = 20E-3 # seconds
 τrefr= 50E-3 # refractoriness
 vth = 20.   # mV
-vthexp = -52.0 # actual threshold for spike-generation
-vth_i = vthexp
+vthexp = -52 # actual threshold for spike-generation
 eifslope = 2.0
-v_reset = -70.0
+v_reset = -60.0
 v_rev_e = 0.0
 v_rev_i = -75.0
 vreste = -60.0 #e resting potential mV
 v_leak_e = vreste
-vresti = -70.0 #i resting potential mV
-Cap = 300.0 #capacitance mF
-in_const_e = 21.0*Cap/myτe 
-in_const_i = 0.0
+vresti = -60.0 #i resting potential mV
+in_const_e =  -51.0 - v_leak_e
+in_const_i = -51.0 - vresti
 
+Cap = 20E-3 #capacitance mF
 
 # synaptic kernel
 tauerise = 1E-3 #e synapse rise time
@@ -318,82 +275,77 @@ tauiplus,tauiminus = tauidecay,tauirise
 ##
 nt_e = let sker = S.SKExpDiff(taueplus,taueminus)
   sgen = S.SpikeGenEIF(vthexp,eifslope)
-  S.NTLIFConductance(sker,sgen,myτe,Cap,
-   vth,v_reset,vreste,τrefr,v_rev_e)
+  S.NTLIFConductance(sker,sgen,myτ,Cap,
+   vth,v_reset,v_leak_e,τrefr,v_rev_e)
 end
-nt_i = let Cap2 = Cap,
-  sker = S.SKExpDiff(tauiplus,tauiminus)
-  sgen = S.SpikeGenNone()
-  S.NTLIFConductance(sker,sgen,myτi,Cap2,
-   vth_i,v_reset,vresti,τrefr,v_rev_i)
+nt_e2 = let Cap2 = 300.0
+  sker = S.SKExpDiff(taueplus,taueminus)
+  sgen = S.SpikeGenEIF(vthexp,eifslope)
+  S.NTLIFConductance(sker,sgen,myτ,Cap2,
+   vth,v_reset,v_leak_e,τrefr,v_rev_e)
 end
-ps_e = S.PSLIFConductance(nt_e,4000)
-ps_i = S.PSLIFConductance(nt_i,1000)
+ps_e1 = S.PSLIFConductance(nt_e,1)
+ps_e2 = S.PSLIFConductance(nt_e2,1)
 
 # one static input 
 ps_input1 = S.PSSimpleInput(S.InputSimpleOffset(in_const_e))
 
-w_ee = weights_sp[1:Ne,1:Ne]
-w_ii = weights_sp[Ne+1:end,Ne+1:end]
-w_ei = weights_sp[1:Ne,Ne+1:end]
-w_ie = weights_sp[Ne+1:end,1:Ne]
+# E to E connection
+conn_ee = let  _w = 50.0
+  wmat = sparse(fill(_w,(1,1)))
+  S.ConnGeneralIF2(wmat)
+end
 
-conn_ee = S.ConnGeneralIF2(w_ee)
-conn_ei = S.ConnGeneralIF2(w_ei)
-conn_ie = S.ConnGeneralIF2(w_ie)
-conn_ii = S.ConnGeneralIF2(w_ii)
-
-pop_e = S.Population(ps_e,(S.FakeConnection(),ps_input1),(conn_ei,ps_i),(conn_ee,ps_e))
-pop_i = S.Population(ps_i,(conn_ie,ps_e),(conn_ii,ps_i))
-
+pop_e1 = S.Population(ps_e1,(S.FakeConnection(),ps_input1))
+pop_e2 = S.Population(ps_e2,(conn_ee,ps_e1))
 
 ##
 # that's it, let's make the network
-myntw = S.RecurrentNetwork(dt,pop_e,pop_i)
+myntw = S.RecurrentNetwork(dt,pop_e1,pop_e2)
 
 # record spiketimes and internal potential
 krec = 1
-rec_state_e = S.RecStateNow(ps_e,krec,dt,Ttot)
-rec_state_i = S.RecStateNow(ps_i,krec,dt,Ttot)
-rec_spikes_e = S.RecSpikes(ps_e,5.0,Ttot)
-rec_spikes_i = S.RecSpikes(ps_i,5.0,Ttot)
+rec_state_e1 = S.RecStateNow(ps_e1,krec,dt,Ttot)
+rec_state_e2 = S.RecStateNow(ps_e2,krec,dt,Ttot)
+rec_spikes_e1 = S.RecSpikes(ps_e1,100.0,Ttot)
+rec_spikes_e2 = S.RecSpikes(ps_e2,100.0,Ttot)
 
 ## Run
 
 times = (0:myntw.dt:Ttot)
 nt = length(times)
 # clean up
-S.reset!.([rec_state_e,rec_spikes_e])
-S.reset!.([rec_state_i,rec_spikes_i])
-S.reset!.([ps_e,ps_i])
-S.reset!(conn_ei)
+S.reset!.([rec_state_e1,rec_spikes_e1])
+S.reset!.([rec_state_e2,rec_spikes_e2])
+S.reset!.([ps_e1,ps_e2])
+S.reset!(conn_ee)
 # initial conditions
-ps_i.state_now .= v_reset
-ps_e.state_now .= v_reset
+ps_e1.state_now .= v_reset
+ps_e2.state_now .= v_reset
 
-@showprogress 5.0 "network simulation" for (k,t) in enumerate(times)
-  rec_state_e(t,k,myntw)
-  rec_state_i(t,k,myntw)
-  rec_spikes_e(t,k,myntw)
-  rec_spikes_i(t,k,myntw)
+for (k,t) in enumerate(times)
+  rec_state_e1(t,k,myntw)
+  rec_state_e2(t,k,myntw)
+  rec_spikes_e1(t,k,myntw)
+  rec_spikes_e2(t,k,myntw)
   S.dynamics_step!(t,myntw)
 end
 
-#S.add_fake_spikes!(1.0vth,rec_state_e,rec_spikes_e)
-#S.add_fake_spikes!(1.0vth_i,rec_state_i,rec_spikes_i)
+S.add_fake_spikes!(1.0vth,rec_state_e1,rec_spikes_e1)
+S.add_fake_spikes!(1.0vth,rec_state_e2,rec_spikes_e2)
 ##
 _ = let plt=plot()
-  neu = 1
-  plot!(plt,rec_state_e.times,rec_state_e.state_now[neu,:];linewidth=2,leg=false)
-  #ts = (1:size(vtest,2)).*0.1E-3
-  #plot!(plt,ts,vtest[1,:];linewidth=2,linestyle=:dash)
+  plot!(plt,rec_state_e1.times,rec_state_e1.state_now[1,:];linewidth=2,leg=false,
+    ylims=(-65,-30))
+  ts = (1:size(vtest,2)).*0.1E-3
+  plot!(plt,ts,vtest[1,:];linewidth=2,linestyle=:dash)
 end
-
 
 ##
 
 _ = let plt = plot()
-  plot!(plt,rec_state_i.times,rec_state_i.state_now[1,:];linewidth=2,leg=false)
-  #ts = (1:size(vtest,2)).*0.1E-3
-  #plot!(plt,ts,vtest[2,:];linewidth=2,linestyle=:dash)
+  plot!(plt,rec_state_e2.times,rec_state_e2.state_now[1,:];linewidth=2,leg=false,
+      ylims = (-60.2,-54))
+  ts = (1:size(vtest,2)).*0.1E-3
+  plot!(plt,ts,vtest[2,:];linewidth=2,linestyle=:dash)
 end

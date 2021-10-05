@@ -191,7 +191,7 @@ include("inputs_shared.jl")
 include("rate_models.jl")
 include("lif_current.jl")
 include("lif_exponential.jl")
-#include("lif_conductance.jl")
+include("lif_conductance.jl")
 include("recorders_shared.jl")
 
 #=

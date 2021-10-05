@@ -9,22 +9,50 @@ abstract type PSGeneralCurrentIFType{NT} <: PSSpikingType{NT} end
 
 # connection for IF neurons 
 # must keep track of internal trace (current/conductance)
-
 struct ConnGeneralIF{N,TP<:NTuple{N,PlasticityRule}} <: Connection{N}
   weights::SparseMatrixCSC{Float64,Int64}
   post_trace::Vector{Float64}
   plasticities::TP
 end
-
 function ConnGeneralIF(weights::SparseMatrixCSC)
-  npost=size(weights,2)
+  npost=size(weights,1)
   return ConnGeneralIF(weights,zeros(Float64,npost),())
 end
 function ConnGeneralIF(weights::SparseMatrixCSC,
     (plasticities::PlasticityRule)...)
-  npost=size(weights,2)
+  npost=size(weights,1)
   return ConnGeneralIF(weights,zeros(Float64,npost),plasticities)
 end
+function reset!(conn::ConnGeneralIF)
+  reset!.(conn.plasticities)
+  fill!(conn.post_trace,0.0)
+  return nothing
+end
+
+# or two internal traces (plus and minus)
+struct ConnGeneralIF2{N,TP<:NTuple{N,PlasticityRule}} <: Connection{N}
+  weights::SparseMatrixCSC{Float64,Int64}
+  post_trace1::Vector{Float64}
+  post_trace2::Vector{Float64}
+  plasticities::TP
+end
+function ConnGeneralIF2(weights::SparseMatrixCSC)
+  npost=size(weights,1)
+  return ConnGeneralIF2(weights,zeros(Float64,npost),zeros(Float64,npost),())
+end
+function ConnGeneralIF2(weights::SparseMatrixCSC,
+    (plasticities::PlasticityRule)...)
+  npost=size(weights,1)
+  return ConnGeneralIF2(weights,zeros(Float64,npost),zeros(Float64,npost),
+    plasticities)
+end
+function reset!(conn::ConnGeneralIF2)
+  reset!.(conn.plasticities)
+  fill!(conn.post_trace1,0.0)
+  fill!(conn.post_trace2,0.0)
+  return nothing
+end
+
 
 # This is an "infinitely strong" voltage connection
 # if pre spikes, and *any* weight is present
