@@ -54,6 +54,8 @@ function reset!(conn::ConnGeneralIF2)
 end
 
 
+
+
 # This is an "infinitely strong" voltage connection
 # if pre spikes, and *any* weight is present
 # then  post will also spike (no delay for now)

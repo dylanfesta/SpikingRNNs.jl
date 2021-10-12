@@ -122,13 +122,6 @@ struct NTPoisson <: NeuronType
   τ_output_decay::Float64 # decay of postsynaptic conductance
 end
 
-# conductance based Poisson firing
-struct NTPoissonCO <: NeuronType
-  rate::Ref{Float64} # rate is in Hz and is mutable
-  τ_post_conductance_decay::Float64 # decay of postsynaptic conductance
-  v_reversal::Float64 # reversal potential that affects postsynaptic neurons
-end
-
 struct PSPoisson{NT} <: PSSpikingType{NT}
   neurontype::NT
   n::Int64 # pop size
@@ -142,10 +135,10 @@ function PSPoisson(rate::Real,τ_decay::Real,n::Integer)
   nt = NTPoisson(rate,τ_decay)
   return PSPoisson{NTPoisson}(nt,n,falses(n),zeros(Float64,n))
 end
-function reset_input!(ps::PSPoisson)
+function reset_input!(::PSPoisson)
   return nothing
 end
-function reset!(ps::PSPoisson)
+function reset!(::PSPoisson)
   return nothing
 end
 function local_update!(t_now::Float64,dt::Float64,ps::PSPoisson)
@@ -194,7 +187,7 @@ end
 # useful for input patterns
 
 struct InputPoissonFtMulti <: NeuronType
-  ratefunction::Function # sigature ::Float64 -> ::Vector{Float64}
+  ratefunction::Function # signature ::Float64 -> ::Vector{Float64}
   τ_output_decay::Float64
 end
 struct PSInputPoissonFtMulti{NT} <: PSSpikingType{NT}
@@ -206,7 +199,7 @@ end
 function PSInputPoissonFtMulti(ratefun,τ,n)
   isfiring = falses(n)
   isfi_alloc = zeros(n)
-  return PSInputPoissonFtMtuli(InputPoissonFtMulti(ratefun,τ),n,isfiring,isfi_alloc)
+  return PSInputPoissonFtMulti(InputPoissonFtMulti(ratefun,τ),n,isfiring,isfi_alloc)
 end
 function reset!(ps::PSInputPoissonFtMulti)
   fill!(ps.isfiring,false)
@@ -216,7 +209,7 @@ function reset_input!(ps::PSInputPoissonFtMulti)
   return nothing
 end
 function local_update!(t_now::Float64,dt::Float64,ps::PSInputPoissonFtMulti)
-  reset_spikes!(ps)
+  #reset_spikes!(ps)  not needed, I rewrite it fully
   Random.rand!(ps.isfiring_alloc)
   _rates::Vector{Float64} = ps.neurontype.ratefunction(t_now)
   @.  ps.isfiring = ps.isfiring_alloc < _rates*dt
@@ -228,8 +221,8 @@ end
 ## training with patterns with no consecutive repetitions
 function _patterns_train_uniform(Npatt::Integer,Δt::Real,Ttot::Real)
   times = collect(0.0:Δt:Ttot)
-  nt = length(times)
-  nreps = ceil(Integer,nt/Npatt)
+  ntimes = length(times)
+  nreps = ceil(Integer,ntimes/Npatt)
   last_patt = Npatt+1
   _seq = Vector{Vector{Int64}}(undef,nreps)
   for s in eachindex(_seq)
@@ -240,16 +233,151 @@ function _patterns_train_uniform(Npatt::Integer,Δt::Real,Ttot::Real)
     last_patt = _ss[end]
     _seq[s] = _ss
   end
-  patt_seq = vcat(_seq...)[1:nt]
+  patt_seq = vcat(_seq...)[1:ntimes-1]
   return times,patt_seq
 end
 
-function binary_patterns_mat(Nneus::Integer,pattern_idx,low_val::Float64,
-    high_val::Real)
-  Npatt=length(pattern_idx)
-  ret = fill(low_val,Nneus,Npatt+1)
-  for p in 1:Npatt
-    ret[pattern_idx[p].neupost,p] .= high_val
+
+# function binary_patterns_mat(Nneus::Integer,pattern_idx::Vector{T},low_val::Float64,
+#     high_val::Real) where T<:NamedTuple
+#   Npatt=length(pattern_idx)
+#   ret = fill(low_val,Nneus,Npatt+1)
+#   for p in 1:Npatt
+#     ret[pattern_idx[p].neupost,p] .= high_val
+#   end
+#   return ret
+# end
+
+function pattern_functor(Δt::R,Ttot::R,low::R,high::R,
+    idxs_patternpop::Vector{Vector{Int64}} ; 
+    t_pattern_delay::R=0.0) where R<:Real
+  # make pattern sequence
+  Npatt = length(idxs_patternpop)
+  patttimes, patt_seq = _patterns_train_uniform(Npatt,Δt,Ttot-t_pattern_delay)
+  # Generate full scale patterns
+  npre = maximum(maximum,idxs_patternpop)
+  fullp = [fill(low,npre)  for _ in 1:Npatt+1]
+  for i in 1:Npatt
+    fullp[i][idxs_patternpop[i]] .= high
   end
-  return ret
+  # generate the function
+  function retfun(t::R)
+    td = t-t_pattern_delay
+    it = searchsortedfirst(patttimes,td)-1
+    #@show it
+    #@show length(patt_seq)
+    if checkbounds(Bool,patt_seq,it)
+      idx = patt_seq[it]
+    else
+      idx = Npatt+1
+    end
+    return fullp[idx]
+  end
+  return retfun
+end
+
+
+
+## generalize a little on the Inputs
+
+abstract type SpikeGenerator end
+
+struct SGPoisson <: SpikeGenerator
+  rate::Float64
+end
+function generate_spikes!(t_now::Float64,dt::Float64,isfiring::BitArray{1},sg::SGPoisson)
+  _rat = sg.rate*dt
+  @inbounds @simd for i in eachindex(isfiring)
+    isfiring[i] = rand() < _rat
+  end
+  return nothing
+end
+struct SGPoissonF <: SpikeGenerator
+  ratefun::Function # t::Float64 -> rate::Float64
+end
+function generate_spikes!(t_now::Float64,dt::Float64,isfiring::BitArray{1},sg::SGPoissonF)
+  _rat::Float64 = sg.ratefun(t_now)*dt
+  if _rat > 0.0
+    @inbounds @simd for i in eachindex(isfiring)
+      isfiring[i] = rand() < _rat
+    end
+  else
+    fill!(false,isfiring)
+  end
+  return nothing
+end
+struct SGPoissonMulti <: SpikeGenerator
+  rates::Vector{Float64}
+end
+function generate_spikes!(t_now::Float64,dt::Float64,isfiring::BitArray{1},sg::SGPoissonMulti)
+  @inbounds @simd for i in eachindex(isfiring)
+    isfiring[i] = rand() < sg.rates[i]*dt
+  end
+  return nothing
+end
+struct SGPoissonMultiF <: SpikeGenerator
+  ratefun::Function # t::Float64 -> rates::Vector{Float64}
+end
+function generate_spikes!(t_now::Float64,dt::Float64,isfiring::BitArray{1},sg::SGPoissonMultiF)
+  _rates::Vector{Float64} = sg.ratefun(t_now) 
+  @inbounds @simd for i in eachindex(isfiring)
+    if _rates[i] > 0
+      isfiring[i] = rand() < _rates[i]*dt
+    else
+      isfiring[i] = false
+    end
+  end
+  return nothing
+end
+
+struct SGTrains <: SpikeGenerator
+  trains::Vector{Vector{Float64}}
+  counter::Vector{Int64}
+  function SGTrains(trains)
+    counter = fill(1,length(trains))
+    new(trains,counter)
+  end
+end
+function generate_spikes!(t_now::Float64,dt::Float64,isfiring::BitArray{1},sg::SGTrains)
+  fill!(isfiring,false)
+  for i in eachindex(isfiring)
+    # pick the spiketrain of each neuron, at the counter index
+    # I could have used searchsortedfirst, too
+    c = sg.counter[i]
+    if checkbounds(Bool,sg.trains[i],c) 
+      @inbounds t_next_spike = sg.trains[i][c]
+      if t_next_spike < t_now+dt
+        isfiring[i] = true # neuron is firing
+        sg.counter[i] += 1    # move counter forward
+      end
+    end
+  end
+  return nothing
+end
+
+struct NTInputConductance{SK<:SynapticKernel,SG<:SpikeGenerator} <:NTConductance
+  spikegenerator::SG
+  synaptic_kernel::SK
+  v_reversal::Float64 # reversal potential that affects postsynaptic neurons
+end
+struct PSInputConductance{NT<:NTInputConductance} <: PSSpikingType{NT}
+  n::Int64
+  neurontype::NT
+  isfiring::BitArray{1}
+  function PSInputConductance(nt::NT,n_neu::Int64) where NT<:NeuronType
+    isfiring=falses(n_neu)
+    new{NT}(n_neu,nt,isfiring)
+  end
+end
+reset_input!(::PSInputConductance) = nothing
+function reset!(::PSInputConductance{NT}) where {SK,SG,NT<:NTInputConductance{SK,SG}}
+  return nothing
+end
+function reset!(::PSInputConductance{NT}) where {SK,NT<:NTInputConductance{SK,SGTrains}}
+  fill!(ps.neurontype.spikegenerator.counter,1)
+  return nothing
+end
+function local_update!(t_now::Float64,dt::Float64,ps::PSInputConductance)
+  generate_spikes!(t_now,dt,ps.isfiring,ps.neurontype.spikegenerator)
+  return nothing
 end

@@ -7,7 +7,7 @@ coductance-based models, generalized so that they can have
 different sypatic kernels (Exp or Expdiff)
 and different spike generating functions (None, or Exp)
 =#
-abstract type SynapticKernel end
+# abstract type SynapticKernel end moved to main
 struct SKExp <: SynapticKernel
   τ::Float64
 end
@@ -22,7 +22,7 @@ end
   return (x_plus-x_minus) / (sk.τ_plus-sk.τ_minus)
 end
 
-abstract type SpikeGenFunction end
+# abstract type SpikeGenFunction end # moved to main file
 struct SpikeGenNone <: SpikeGenFunction end
 @inline function (sk::SpikeGenNone)(::R) where R
   return zero(R)
@@ -36,10 +36,14 @@ end
   return sk.s*exp((v-sk.vth_exp)/sk.s)
 end
 
+# abstract type NTConductance <:NeuronType end moved to main file
+# ALL conductance neurons must have spikes (neuron.isfiring::BitArray{1}) 
+# a synaptic kernel (neuron.synaptic_kernel::SynapticKernel) 
+# and a reversal potential (neuron.v_reversal::Float64)
 
-struct NTLIFConductance{SK<:SynapticKernel,SGen<:SpikeGenFunction} <: NeuronType
+struct NTLIFConductance{SK<:SynapticKernel} <: NTConductance
   synaptic_kernel::SK
-  spikegen::SGen
+  spikegen::SpikeGenFunction
   τ_post::Float64 # time constant for postsynaptic update
   capacitance::Float64 # membrane capacitance
   v_threshold::Float64 # max voltage before reset
@@ -82,13 +86,13 @@ end
 # use ConnGeneralIF2
 
 @inline function trace_spike_update!(conn::ConnGeneralIF2,
-    w::Real,pre_synker::SKExp,post_idx::Integer)
+    w::Real,::SKExp,post_idx::Integer)
   # not normalized by taus  
 	conn.post_trace1[post_idx] += w
   return nothing
 end
 @inline function trace_spike_update!(conn::ConnGeneralIF2,
-    w::Float64,pre_synker::SKExpDiff,post_idx::Integer)
+    w::Float64,::SKExpDiff,post_idx::Integer)
   # not normalized by taus  
 	conn.post_trace1[post_idx] += w
 	conn.post_trace2[post_idx] += w
@@ -96,32 +100,44 @@ end
 end
 
 # synaptic kernel as conductance
+
 @inline function postsynaptic_kernel_update!(pspost::PopulationState,
-   conn::ConnGeneralIF2,pspre::PSLIFConductance{NT},
-   idx::Integer) where {SGen,NT<:NTLIFConductance{SKExp,SGen}}
-	pspost.input[idx] += pspre.neurontype.synaptic_kernel(conn.post_trace1[idx]) * 
-    (pspre.neurontype.v_reversal - pspost.state_now[idx])
+     conn::ConnGeneralIF2,pre_synkernel::SKExp,pre_v_reversal::Float64,idx::Integer) 
+	pspost.input[idx] += pre_synkernel(conn.post_trace1[idx]) * 
+      (pre_v_reversal - pspost.state_now[idx])
   return nothing
 end
 @inline function postsynaptic_kernel_update!(pspost::PopulationState,
-   conn::ConnGeneralIF2,pspre::PSLIFConductance{NT},
-   idx::Integer) where {SGen,NT<:NTLIFConductance{SKExpDiff,SGen}}
-  ker_term = pspre.neurontype.synaptic_kernel(conn.post_trace1[idx],conn.post_trace2[idx])
-	pspost.input[idx] += ker_term*(pspre.neurontype.v_reversal - pspost.state_now[idx])
+     conn::ConnGeneralIF2,pre_synkernel::SKExpDiff,pre_v_reversal::Float64,idx::Integer)
+  ker_term = pre_synkernel(conn.post_trace1[idx],conn.post_trace2[idx])
+	pspost.input[idx] += ker_term*(pre_v_reversal - pspost.state_now[idx])
   return nothing
 end
 
+# @inline function postsynaptic_kernel_update!(pspost::PopulationState,
+#    conn::ConnGeneralIF2,pspre::PSLIFConductance{NT},
+#    idx::Integer) where {SGen,NT<:NTLIFConductance{SKExp,SGen}}
+# 	pspost.input[idx] += pspre.neurontype.synaptic_kernel(conn.post_trace1[idx]) * 
+#     (pspre.neurontype.v_reversal - pspost.state_now[idx])
+#   return nothing
+# end
+# @inline function postsynaptic_kernel_update!(pspost::PopulationState,
+#    conn::ConnGeneralIF2,pspre::PSLIFConductance{NT},
+#    idx::Integer) where {SGen,NT<:NTLIFConductance{SKExpDiff,SGen}}
+#   ker_term = pspre.neurontype.synaptic_kernel(conn.post_trace1[idx],conn.post_trace2[idx])
+# 	pspost.input[idx] += ker_term*(pspre.neurontype.v_reversal - pspost.state_now[idx])
+#   return nothing
+# end
 
-@inline function trace_decay!(conn::ConnGeneralIF2,dt::Real,
-     pre_synkernel::SKExpDiff) 
+
+@inline function trace_decay!(conn::ConnGeneralIF2,dt::Real,pre_synkernel::SKExpDiff) 
 	@inbounds @simd for i in eachindex(conn.post_trace1)
 		conn.post_trace1[i] -= dt*conn.post_trace1[i] / pre_synkernel.τ_plus
 		conn.post_trace2[i] -= dt*conn.post_trace2[i] / pre_synkernel.τ_minus
 	end
   return nothing
 end
-@inline function trace_decay!(conn::ConnGeneralIF2,dt::Real,
-     pre_synkernel::SKExp) 
+@inline function trace_decay!(conn::ConnGeneralIF2,dt::Real,pre_synkernel::SKExp) 
 	@inbounds @simd for i in eachindex(conn.post_trace1)
 		conn.post_trace1[i] -= dt*conn.post_trace1[i] / pre_synkernel.τ
 	end
@@ -129,16 +145,12 @@ end
 end
 
 
-
 ## define two main functions here
-
 function local_update!(t_now::Float64,dt::Float64,ps::PSLIFConductance)
 	# computes the update to internal voltage, given the total input
   # dv =  (v_leak - v ) dt / τ + I dt / Cap
   dttau =  dt / ps.neurontype.τ_post
   dtCap = dt / ps.neurontype.capacitance
-  # @show (ps.neurontype.v_leak[1] - ps.state_now[1])*dttau + ps.input[1]*dtCap
-  # @show ps.neurontype.spikegen(ps.state_now[1])*dttau
   @. begin 
    ps.alloc_dv = (ps.neurontype.v_leak - ps.state_now)*dttau + ps.input*dtCap +
      ps.neurontype.spikegen(ps.state_now)*dttau
@@ -153,14 +165,13 @@ function forward_signal!(t_now::Real,dt::Real,
       pspost::PSLIFConductance,conn::ConnGeneralIF2,pspre::PopulationState)
 	post_idxs = rowvals(conn.weights) # postsynaptic neurons
 	weightsnz = nonzeros(conn.weights) # direct access to weights 
-	#τ_decay = pspre.neurontype.τ_post_conductance_decay
   pre_synker = pspre.neurontype.synaptic_kernel
+  pre_v_reversal = pspre.neurontype.v_reversal
 	for _pre in findall(pspre.isfiring)
 		_posts_nz = nzrange(conn.weights,_pre) # indexes of corresponding pre in nz space
 		@inbounds for _pnz in _posts_nz
 			post_idx = post_idxs[_pnz]
-      trace_spike_update!(conn,weightsnz[_pnz],
-        pre_synker,post_idx)
+      trace_spike_update!(conn,weightsnz[_pnz],pre_synker,post_idx)
 		end
 	end
 	# add the currents to postsynaptic input
@@ -168,109 +179,10 @@ function forward_signal!(t_now::Real,dt::Real,
 	post_refr = findall(pspost.isrefractory) # refractory ones
 	@inbounds @simd for i in eachindex(pspost.input)
 		if !(i in post_refr)
-      postsynaptic_kernel_update!(pspost,conn,pspre,i)
-      # input += conductance(t) * ( v_reversal - v(t) )
-			#pspost.input[i] += 
-      #  conn.post_trace[i] * (pspre.neurontype.v_reversal - pspost.state_now[i])
-
+      postsynaptic_kernel_update!(pspost,conn,pre_synker,pre_v_reversal,i)
 		end
 	end
   # finally, all postsynaptic conductances decay in time
-  trace_decay!(conn,dt,pspre.neurontype.synaptic_kernel)
-	#@inbounds @simd for i in eachindex(conn.post_conductance)
-	#	conn.post_trace[i] -= dt*conn.post_conductance[i] / τ_decay
-	#end
+  trace_decay!(conn,dt,pre_synker)
   return nothing
 end
-
-
-
-#=
-# threshold-linear input-output function
-struct NTLIFCO <: NeuronType
-  τ::Float64 # time constant
-  Cap::Float64 # capacitance
-  v_threshold::Vector{Float64} # spiking threshold (can vary among neurons)
-  v_reset::Float64 # reset after spike
-  v_leak::Float64 # reversal potential for leak term
-  τ_refractory::Float64 # refractory time
-  τ_post_conductance_decay::Float64 # decay of postsynaptic conductance
-  v_reversal::Float64 # reversal potential that affects postsynaptic neurons
-end
-
-struct PSLIFCO{NT} <: PopulationState{NT}
-  neurontype::NT
-  n::Int64 # pop size
-  state_now::Vector{Float64}
-  input::Vector{Float64}
-	alloc_dv::Vector{Float64}
-	last_fired::Vector{Float64}
-	isfiring::BitArray{1}
-	isrefractory::BitArray{1}
-	pre_reverse_potentials::Vector{Float64}
-	pre_conductances_now::Vector{Float64}
-end
-function PSLIFCO(p::NTLIFCO,n)
-  zz() = zeros(Float64,n)
-  ff() = falses(n)
-  PSLIFCO(p,n,ntuple(zz,4)...,ntuple(ff,2)...,ntuple(zz,4))
-end
-
-# connection 
-# must keep track of conductances 
-
-struct ConnLIFCO{N,TP<:NTuple{N,PlasticityRule}} <: Connection
-  weights::SparseMatrixCSC{Float64,Int64}
-  post_conductance::Vector{Float64}
-  plasticities::TP
-end
-function ConnLIFCO(weights::SparseMatrixCSC)
-  npost=size(weights,2)
-  ConnLIFCO(weights,zeros(Float64,npost),())
-end
-
-## define two main functions here
-
-function local_update!(t_now::Float64,dt::Float64,ps::PSLIFCO)
-	# computes the update to internal voltage, given the total input
-  # dv =  (v_leak - v ) dt / τ + I dt / Cap
-  dttau =  dt / ps.neurontype.τ
-  dtCap = dt / ps.neurontype.Cap
-  @. ps.alloc_dv = (ps.neurontype.v_leak - ps.state_now)*dttau + ps.input*dtCap
-  ps.state_now .+= ps.alloc_dv # v_{t+1} = v_t + dv
-	# update spikes and refractoriness, and end
-  return _spiking_state_update!(ps.state_now,ps.isrefractory,ps.last_fired,
-    t_now,ps.neurontype.τ_refractory,ps.neurontype.v_threshold,ps.neurontype.v_reset)
-end
-
-
-function forward_signal!(t_now::Real,dt::Real,
-      pspost::PSLIFCO,conn::ConnectionLIFCO,pspre::PopulationState)
-	post_idxs = rowvals(conn.weights) # postsynaptic neurons
-	weightsnz = nonzeros(conn.weights) # direct access to weights 
-	τ_decay = pspre.neurontype.τ_post_conductance_decay
-	for _pre in findall(pspre.isfiring)
-		_posts_nz = nzrange(conn.weights,_pre) # indexes of corresponding pre in nz space
-		@inbounds for _pnz in _posts_nz
-			post_idx = post_idxs[_pnz]
-		  conn.post_conductance[post_idx] += weightsnz[_pnz] / τ_decay
-		end
-	end
-	# add the currents to postsynaptic input
-	# ONLY non-refractory neurons
-	post_refr = findall(pspost.isrefractory) # refractory ones
-	@inbounds @simd for i in eachindex(pspost.input)
-		if !(i in post_refr)
-      # input += conductance(t) * ( v_reversal - v(t) )
-			pspost.input[i] += 
-        conn.post_conductance[i] * (pspre.neurontype.v_reversal - pspost.state_now[i])
-		end
-	end
-  # finally, all postsynaptic conductances decay in time
-	@inbounds @simd for i in eachindex(conn.post_conductance)
-		conn.post_conductance[i] -= dt*conn.post_conductance[i] / τ_decay
-	end
-  return nothing
-end
-
-=#

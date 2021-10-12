@@ -1,12 +1,18 @@
 module SpikingRNNs
 using LinearAlgebra,Statistics,StatsBase,Random,Distributions
 using SparseArrays
-using ProgressLogging
+using Colors # to save spike rasters as png
+
+# all type declarations should go here :-/
+
+abstract type NeuronType end
+abstract type SynapticKernel end
+abstract type NTConductance <:NeuronType end
+abstract type SpikeGenFunction end 
 
 # Base elements
 
 # neuron parameterns and behavior
-abstract type NeuronType end
 Base.broadcastable(t::NeuronType)=Ref(t)
 
 
@@ -21,6 +27,7 @@ abstract type Connection{N} end
 abstract type PlasticityRule end
 
 struct NoPlasticity <: PlasticityRule end
+reset!(::NoPlasticity) = nothing
 
 struct FakeConnection{N,PL<:NTuple{N,PlasticityRule}} <: Connection{N}
   weights::SparseMatrixCSC{Float64,Int64}
@@ -49,11 +56,15 @@ struct ConnectionPlasticityTest{N,PL<:NTuple{N,PlasticityRule}} <: Connection{N}
 end
 function ConnectionPlasticityTest(weights::SparseMatrixCSC,
     (plasticities::PlasticityRule)...)
-  npost=size(weights,2)
   return ConnectionPlasticityTest(weights,plasticities)
 end
+function reset!(conn::ConnectionPlasticityTest)
+  reset!.(conn.plasticities)
+  return nothing
+end
 
-@inline function n_plasticity_rules(c::Connection{N}) where N
+
+@inline function n_plasticity_rules(::Connection{N}) where N
   return N
 end
 
@@ -64,7 +75,6 @@ struct PSSimpleInput{In} <: PopulationState{In}
     return new{N}(in,1)
   end
 end
-
 
 function rand_pop_label()
   return Symbol(randstring(3))

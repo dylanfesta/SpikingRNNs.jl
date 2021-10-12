@@ -98,7 +98,7 @@ struct RecSpikes{PS<:PopulationState}
   spikeneurons::Vector{Int64}
   function RecSpikes(ps::PS, expected_rate::Float64,Tmax::Float64;
       idx_save::Vector{Int64}=Int64[],t_warmup::Float64=0.0,
-      nrecmax::Int64 = Int64(1E6)) where PS
+      nrecmax::Int64 = 10_000_000) where PS
     nneus = isempty(idx_save) ? nneurons(ps) : length(idx_save)
     nrecs = ceil(Integer,nneus * expected_rate * (Tmax-t_warmup))
     @assert nrecs <= nrecmax "Saving data might require too much memory!"
@@ -159,16 +159,16 @@ end
 
 # adds a pulse at time of spiking
 # voltage_traces : rows are neurons, columns are timesteps
-function add_fake_spikes!(v_max::R,voltage_times::Vector{R},
+function add_fake_spikes!(v_spike::R,voltage_times::Vector{R},
     voltage_traces::Matrix{R},
     spiketimes::Vector{R},spikeneurons::Vector{<:Integer}) where R
   c=1
   for (k,t) in enumerate(voltage_times)
     if checkbounds(Bool,spiketimes,c)
       next_spike = spiketimes[c]
-      if t > next_spike
+      if t >= next_spike
         spikeneuron = spikeneurons[c]
-        voltage_traces[spikeneuron,k] = v_max
+        voltage_traces[spikeneuron,k] = v_spike
         c+=1
       end
     end
@@ -176,11 +176,93 @@ function add_fake_spikes!(v_max::R,voltage_times::Vector{R},
   return nothing
 end
 
-function add_fake_spikes!(v_max::Float64,rtrace::RecStateNow,rspk::RecSpikes)
-  return add_fake_spikes!(v_max,rtrace.times,rtrace.state_now,
+function add_fake_spikes!(v_spike::Float64,rtrace::RecStateNow,rspk::RecSpikes)
+  return add_fake_spikes!(v_spike,rtrace.times,rtrace.state_now,
     rspk.spiketimes,rspk.spikeneurons)
 end
 
+##
+
+function binned_spikecount(dt::Float64,rspk::RecSpikes;
+    Nneus::Int64=-1,Ttot::Float64=0.0)
+  return binned_spikecount(dt,get_spiketimes_spikeneurons(rspk)...;
+    Nneus=Nneus,Ttot=Ttot)
+end
+function binned_spikecount(dt::Float64,spktimes::Vector{Float64},
+    spkneurons::Vector{Int64};Nneus::Int64=-1,Ttot::Float64=0.0)
+  Ttot = max(Ttot, maximum(spktimes)+dt)
+  Nneus = max(Nneus,maximum(spkneurons))
+  tbins = 0.0:dt:Ttot
+  ntimes = length(tbins)-1
+  binnedcount = fill(0,(Nneus,ntimes))
+  for (t,neu) in zip(spktimes,spkneurons)
+    tidx = searchsortedfirst(tbins,t)-1
+    binnedcount[neu,tidx]+=1
+  end
+  binsc=midpoints(tbins)
+  return binsc,binnedcount
+end
+
+
+function raster_png(dt::Float64,rspk::RecSpikes ;
+    Nneurons::Int64=-1,
+    Ttot::Float64=0.0,spike_height::Int64=5,
+    reorder::Vector{Int64}=Int64[])
+  spkt,spkn = get_spiketimes_spikeneurons(rspk)
+  Ttot = max(Ttot, maximum(spkt)+dt)
+  Nneurons = max(Nneurons,maximum(spkn))
+  tbins = rspk.t_warmup-eps(rspk.t_warmup):dt:Ttot
+  ntimes = length(tbins)-1
+  rasterbin = falses(Nneurons,ntimes)
+  for (neu,t) in zip(spkn,spkt)
+    tidx = searchsortedfirst(tbins,t)-1
+    rasterbin[neu,tidx]=true
+  end
+  if !isempty(reorder)
+    rasterbin .= rasterbin[reorder,:]
+  end
+  ret = @. RGB(Gray(!rasterbin))
+  if spike_height > 1
+    ret = repeat(ret;inner=(spike_height,1))
+  end
+  return ret
+end
+
+
+#=
+
+function raster_png(sd::SpontaneousData,session_id::String;
+    cells::Union{Nothing,Vector{Int64}}=nothing,
+    spike_height::Int64=3, df_rank::Union{Nothing,DataFrame}=nothing)
+  if isnothing(cells)
+    dat = filter(r->r.session_id==session_id,sd.cells)
+  else
+    dat = filter(r->(r.session_id==session_id) && (r.cell in cells),sd.cells)
+  end
+  if isnothing(df_rank)
+    sort!(dat,:cell)
+  else
+    dat = innerjoin(dat,select(df_rank,:cell,:rank); on=:cell)
+    sort!(dat,:rank)
+  end
+  ret = Vector{Vector{RGB}}(undef,0)
+  for r in eachrow(dat)
+    # get rasters of corresponding cells
+    rast = @. RGB(Gray(! r.raster))
+    push!(ret,rast)
+  end
+  ret = permutedims(hcat(ret...))
+  if spike_height > 1
+    ret = repeat(ret;inner=(spike_height,1))
+  end
+  return ret
+end
+=#
+
+
+
+
+# recond weights
 
 struct RecWeights
   weights::SparseMatrixCSC{Float64,Int64}
@@ -191,8 +273,8 @@ struct RecWeights
   idx_save::Vector{CartesianIndex{2}} # which weights to save
   times::Vector{Float64}
   weights_now::Matrix{Float64}
-  function RecWeights(conn::Connection,everyk::Integer,dt::Float64,
-      Tmax::Float64; 
+  function RecWeights(conn::Connection,
+      everyk::Integer,dt::Float64,Tmax::Float64; 
       idx_save::Vector{CartesianIndex{2}}=CartesianIndex{2}[],
       t_warmup::Float64=0.0)
     if iszero(n_plasticity_rules(conn))
@@ -211,6 +293,7 @@ struct RecWeights
   end
 end
 
+Base.length(rec::RecWeights) = length(rec.times)
 
 function reset!(rec::RecWeights)
   fill!(rec.times,NaN)
@@ -218,7 +301,6 @@ function reset!(rec::RecWeights)
   rec.isdone[]=false
   return nothing
 end
-
 
 function (rec::RecWeights)(t::Float64,k::Integer,ntw::AbstractNetwork)
   # I assume k starts from 1, which corresponds to t=0
@@ -235,3 +317,19 @@ function (rec::RecWeights)(t::Float64,k::Integer,ntw::AbstractNetwork)
   rec.times[kless] = t
   return nothing
 end
+
+function rebuild_weights(rec::RecWeights)
+  times = rec.times
+  ntimes = length(times)
+  wout = Vector{SparseMatrixCSC{Float64,Int64}}(undef,ntimes)
+  for kt in 1:ntimes
+    _w = zeros(Float64,size(rec.weights))
+    for (k,ij) in enumerate(rec.idx_save)
+      _w[ij] = rec.weights_now[k,kt]
+    end
+    wout[kt] = sparse(_w)
+  end
+  return times,wout
+end
+
+# TO-DO  ... RecWeighmatrix , where I just copy it as sparse matrix

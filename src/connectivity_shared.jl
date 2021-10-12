@@ -68,9 +68,9 @@ function sparse_wmat_rowfun(make_a_row::Function,
   wvec = nonzeros(wmat)
   for r in unique(rw)
     ridx = r .== rw
-    n = count(nidx)
+    n = count(ridx)
     newrow = make_a_row(n)
-    wvec .= newrow
+    wvec[ridx] .= newrow
   end
   return wmat
 end
@@ -122,8 +122,7 @@ function sparse_wmat(npost::Integer,npre::Integer,p::Real,j_val::Real ;
 end
 
 """
-    wmat_train_assemblies_protocol(Nneus::Integer,p::Real;
-      scal::Float64=1.0) 
+    wmat_train_assemblies_protocol(Nneus::Integer,p::Real; scal::Float64=1.0) 
       -> (weights::SparseMatrixCSC,assembly_dictionary::Dict)
 
   # Arguments
@@ -139,6 +138,7 @@ end
 """
 function wmat_train_assemblies_protocol(Npost::Integer,Nassemblies::Integer,
     p_assembly::Real;scal::Float64=1.0)
+  # unoptimized... but called only once
   post_neus = [findall(rand(Npost) .< p_assembly) for _ in 1:Nassemblies]
   c = 0
   pre_neus = map(post_neus) do _po
@@ -147,11 +147,25 @@ function wmat_train_assemblies_protocol(Npost::Integer,Nassemblies::Integer,
     c += _ln
     return ret
   end
-  wmat = sparse( vcat(post_neus...),vcat(pre_neus...), scal )
+  _pre_neus_all = vcat(pre_neus...)
+  wmat = sparse(vcat(post_neus...),_pre_neus_all,scal,
+    Npost,length(_pre_neus_all)) # include total matrix size
   assembly_list = map(zip(post_neus,pre_neus)) do (_post,_pre)
     (neupost=_post,neupre=_pre)
   end
   return wmat,assembly_list
 end
 
+
+# to order assemblies (no idea where to place this function)
+function order_by_pattern_idxs(pattern_idxs::Vector{Vector{Int64}},
+    nneus::Int64;high_number::Int64=100_000)
+  _tosort = fill(high_number,nneus)
+  for (p,pat_neus) in enumerate(pattern_idxs)
+    for neu in pat_neus
+      _tosort[neu] = min(_tosort[neu],p)
+    end
+  end
+  return sortperm(_tosort)
+end
 
