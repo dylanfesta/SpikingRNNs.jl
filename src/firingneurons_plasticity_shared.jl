@@ -242,7 +242,6 @@ function PlasticityStructural(νdeath::R,Δt_update::R,ρ::R,w_new::R;
    _tcounter)
 end
 
-
 function plasticity_update!(t_now::Real,dt::Real,
      pspost::PopulationState,conn::Connection,pspre::PopulationState,
      plast::PlasticityStructural)
@@ -275,5 +274,108 @@ function plasticity_update!(t_now::Real,dt::Real,
     nonzeros(conn.weights)[idx_kill] = 0.0
   end
   dropzeros!(conn.weights)
+  return nothing
+end
+
+# Heterosynaptc plasticity modes
+
+abstract type HeterosynaptcPlasticityMethod end
+struct HeterosynaptcAdditive <: HeterosynaptcPlasticityMethod
+  wmin::Float64
+end
+struct HeterosynaptcMultiplicative <: HeterosynaptcPlasticityMethod 
+  wmin::Float64
+end
+
+abstract type HeterosynaptcPlasticityTarget end
+struct HeterosynaptcIncoming <: HeterosynaptcPlasticityTarget 
+  sum_max::Float64
+end 
+struct HeterosynaptcOutgoing <: HeterosynaptcPlasticityTarget 
+  sum_max::Float64
+end 
+
+struct PlasticityHeterosynaptc{HetMeth<:HeterosynaptcPlasticityMethod,HetTarg<:HeterosynaptcPlasticityTarget} <: PlasticityRule
+  method::HetMeth
+  target::HetTarg
+  _tcounter::Ref{Float64}
+end
+
+function reset!(plast::PlasticityHeterosynaptc)
+  plast._tcounter[] = zero(Float64)
+  return nothing
+end
+
+function _get_row_idxs(M::SparseMatrixCSC,row_idx::Integer)
+  return findall(==(row_idx), SparseArrays.rowvals(M))
+end
+function _get_col_idxs(M::SparseMatrixCSC,col_idx::Integer)
+  cptr = SparseArrays.getcolptr(M)
+  return collect(cptr[col_idx]:cptr[col_idx+1]-1)
+end
+
+
+# the correction takes the form:
+# ( (sum - desired sum) - wmin_gain ) / (nsyn - nwmin) 
+function _heterosynaptic_fix!(nzvals::Vector{Float64},idxs::Vector{<:Integer},
+    method::HeterosynaptcAdditive,target::HeterosynaptcPlasticityTarget)
+  wmin = method.wmin
+  nsyn = length(idxs)
+  # fix without wmin
+  fix_val = (sum(view(nzvals,idxs))-target.sum_max)/nsyn
+  (fix_val < 0.0) && (return nothing)
+  while true
+    idx_low = filter(idx -> (nzvals[idx]-fix_val) < wmin,idxs)
+    isempty(idx_low) && break
+    nlow = length(idx_low) 
+    fix_val  = (nsyn*fix_val + nlow*wmin - sum(view(nzvals,idx_low))) / (nsyn-nlow)
+    nsyn = nsyn-nlow
+    filter!(!(in)(idx_low),idxs)
+    nzvals[idx_low] .= wmin
+  end
+  for idx in idxs
+    nzvals[idx] -= fix_val
+  end
+  return nothing
+end
+
+function _heterosynaptic_fix!(nzvals::Vector{Float64},idxs::Vector{<:Integer},
+    method::HeterosynaptcMultiplicative,target::HeterosynaptcPlasticityTarget)
+  wmin = method.wmin
+  sum_targ = target.sum_max
+  sum_val = sum(view(nzvals,idxs))
+  fix_val = sum_targ/sum_val 
+  (fix_val > 1.0) && (return nothing)
+  if wmin > 0.0 # if 0, normalization is always good
+    while true
+      idx_low = filter(idx->nzvals[idx]*fix_val < wmin,idxs)
+      isempty(idx_low) && break
+      @info "one iteration!"
+      nlow = length(idx_low)
+      sum_targ -= nlow*wmin
+      sum_val -= sum(view(nzvals,idx_low))  
+      filter!(!(in)(idx_low),idxs)
+      fix_val = sum_targ/sum_val 
+      nzvals[idx_low] .= wmin
+    end
+  end
+  @inbounds for idx in idxs
+    nzvals[idx] *= fix_val
+  end
+  return nothing
+end
+
+function plasticity_update!(t_now::Real,dt::Real,
+     pspost::PopulationState,conn::Connection,pspre::PopulationState,
+     plast::PlasticityHeterosynaptc)
+  plast._tcounter[] += dt
+  if plast._tcounter[] < plast.Δt_update  
+    return nothing
+  end
+  # reset timer
+  plast._tcounter[] = zero(Float64)
+  # apply plasticity :
+  ZZZZZZZZZZZZZZZZZZZzzz
+
   return nothing
 end

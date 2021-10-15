@@ -169,5 +169,16 @@ _ = let plt=plot()
 end
 
 
+##
+@benchmark sum(A;dims=1) setup=(A=sparse(Matrix{Float64}(I,10_000,10_000)))
+@benchmark sum(A;dims=1) setup=(A=Matrix{Float64}(I,10_000,10_000))
+@benchmark mycolsum(A) setup=(A=sparse(Matrix{Float64}(I,10_000,10_000)))
 
 
+
+ciao = randn(1000,1000)
+
+s1 = mycolsum(sparse(ciao))
+s2 = sum(ciao;dims=1)[:]
+
+extrema(s1-s2)
