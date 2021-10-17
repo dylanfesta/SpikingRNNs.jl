@@ -277,31 +277,31 @@ function plasticity_update!(t_now::Real,dt::Real,
   return nothing
 end
 
-# Heterosynaptc plasticity modes
+# Heterosynaptic plasticity modes
 
-abstract type HeterosynaptcPlasticityMethod end
-struct HeterosynaptcAdditive <: HeterosynaptcPlasticityMethod
+abstract type HeterosynapticPlasticityMethod end
+struct HeterosynapticAdditive <: HeterosynapticPlasticityMethod
   wmin::Float64
 end
-struct HeterosynaptcMultiplicative <: HeterosynaptcPlasticityMethod 
+struct HeterosynapticMultiplicative <: HeterosynapticPlasticityMethod 
   wmin::Float64
 end
 
-abstract type HeterosynaptcPlasticityTarget end
-struct HeterosynaptcIncoming <: HeterosynaptcPlasticityTarget 
+abstract type HeterosynapticPlasticityTarget end
+struct HeterosynapticIncoming <: HeterosynapticPlasticityTarget 
   sum_max::Float64
 end 
-struct HeterosynaptcOutgoing <: HeterosynaptcPlasticityTarget 
+struct HeterosynapticOutgoing <: HeterosynapticPlasticityTarget 
   sum_max::Float64
 end 
 
-struct PlasticityHeterosynaptc{HetMeth<:HeterosynaptcPlasticityMethod,HetTarg<:HeterosynaptcPlasticityTarget} <: PlasticityRule
+struct PlasticityHeterosynaptic{HetMeth<:HeterosynapticPlasticityMethod,HetTarg<:HeterosynapticPlasticityTarget} <: PlasticityRule
   method::HetMeth
   target::HetTarg
   _tcounter::Ref{Float64}
 end
 
-function reset!(plast::PlasticityHeterosynaptc)
+function reset!(plast::PlasticityHeterosynaptic)
   plast._tcounter[] = zero(Float64)
   return nothing
 end
@@ -314,68 +314,126 @@ function _get_col_idxs(M::SparseMatrixCSC,col_idx::Integer)
   return collect(cptr[col_idx]:cptr[col_idx+1]-1)
 end
 
+# let's have an iterator to handle those two above, for each row/col
+struct HeterosynapticIdxsIterator{HetTarg}
+  M::SparseMatrixCSC
+  target::HetTarg
+end
+Base.eltype(::Type{HeterosynapticIdxsIterator}) = Vector{Int64}
+Base.getindex(hetit::HeterosynapticIdxsIterator,idx::Integer) = iterate(hetit,idx)[1]
 
-# the correction takes the form:
-# ( (sum - desired sum) - wmin_gain ) / (nsyn - nwmin) 
+# incoming connections: I am iterating over rows
+Base.length(hetit::HeterosynapticIdxsIterator{HeterosynapticIncoming}) = size(hetit.M,1)
+function Base.iterate(hetit::HeterosynapticIdxsIterator{HeterosynapticIncoming})
+  idxs = _get_row_idxs(hetit.M,1)
+  return (idxs,2)
+end
+function Base.iterate(hetit::HeterosynapticIdxsIterator{HeterosynapticIncoming},
+    row::Int64)
+  if row > length(hetit)
+    return nothing
+  else
+    idxs = _get_row_idxs(hetit.M,row)
+    row += 1
+    return (idxs,row)
+  end
+end
+# outgoing connections : iterate over columns
+Base.length(hetit::HeterosynapticIdxsIterator{HeterosynapticOutgoing}) = size(hetit.M,2)
+function Base.iterate(hetit::HeterosynapticIdxsIterator{HeterosynapticOutgoing})
+  idxs = _get_col_idxs(hetit.M,1)
+  return (idxs,2)
+end
+function Base.iterate(hetit::HeterosynapticIdxsIterator{HeterosynapticOutgoing},
+    row::Int64)
+  if row > length(hetit)
+    return nothing
+  else
+    idxs = _get_col_idxs(hetit.M,row)
+    row += 1
+    return (idxs,row)
+  end
+end
+
+
+# if values less than wmin, re-distributes the correction on the other neurons
 function _heterosynaptic_fix!(nzvals::Vector{Float64},idxs::Vector{<:Integer},
-    method::HeterosynaptcAdditive,target::HeterosynaptcPlasticityTarget)
+    method::HeterosynapticAdditive,target::HeterosynapticPlasticityTarget)
   wmin = method.wmin
   nsyn = length(idxs)
   # fix without wmin
   fix_val = (sum(view(nzvals,idxs))-target.sum_max)/nsyn
   (fix_val < 0.0) && (return nothing)
   while true
-    idx_low = filter(idx -> (nzvals[idx]-fix_val) < wmin,idxs)
-    isempty(idx_low) && break
-    nlow = length(idx_low) 
-    fix_val  = (nsyn*fix_val + nlow*wmin - sum(view(nzvals,idx_low))) / (nsyn-nlow)
-    nsyn = nsyn-nlow
-    filter!(!(in)(idx_low),idxs)
-    nzvals[idx_low] .= wmin
-  end
-  for idx in idxs
-    nzvals[idx] -= fix_val
+    docycle = false
+    accu = 0.0
+    idx_low = Int64[]
+    for idx in idxs
+      nzvals[idx] -= fix_val
+      if nzvals[idx] < wmin
+        accu += wmin - nzvals[idx]
+        nzvals[idx] = wmin
+        push!(idx_low,idx)
+        docycle=true
+      end
+    end
+    if docycle
+      filter!(!(in)(idx_low),idxs)
+      fix_val = accu / (nsyn-length(idx_low))
+      nsyn = length(idxs)
+    else
+      break
+    end
   end
   return nothing
 end
 
 function _heterosynaptic_fix!(nzvals::Vector{Float64},idxs::Vector{<:Integer},
-    method::HeterosynaptcMultiplicative,target::HeterosynaptcPlasticityTarget)
+    method::HeterosynapticMultiplicative,target::HeterosynapticPlasticityTarget)
   wmin = method.wmin
   sum_targ = target.sum_max
   sum_val = sum(view(nzvals,idxs))
   fix_val = sum_targ/sum_val 
   (fix_val > 1.0) && (return nothing)
-  if wmin > 0.0 # if 0, normalization is always good
-    while true
-      idx_low = filter(idx->nzvals[idx]*fix_val < wmin,idxs)
-      isempty(idx_low) && break
-      @info "one iteration!"
-      nlow = length(idx_low)
-      sum_targ -= nlow*wmin
-      sum_val -= sum(view(nzvals,idx_low))  
+  while true
+    docycle = false
+    sum_val = 0.0
+    idx_low = Int64[]
+    for idx in idxs
+      nzvals[idx] *= fix_val # apply fix
+      if nzvals[idx] < wmin  # check the fix
+        nzvals[idx] = wmin
+        push!(idx_low,idx)
+        docycle = true
+        sum_targ -= wmin  # update target sum to exclude min synapses
+      else
+        sum_val += nzvals[idx]  # update synapses sum
+      end
+    end
+    if docycle
       filter!(!(in)(idx_low),idxs)
       fix_val = sum_targ/sum_val 
-      nzvals[idx_low] .= wmin
+    else
+      break
     end
-  end
-  @inbounds for idx in idxs
-    nzvals[idx] *= fix_val
   end
   return nothing
 end
 
+
 function plasticity_update!(t_now::Real,dt::Real,
      pspost::PopulationState,conn::Connection,pspre::PopulationState,
-     plast::PlasticityHeterosynaptc)
+     plast::PlasticityHeterosynaptic)
   plast._tcounter[] += dt
   if plast._tcounter[] < plast.Δt_update  
     return nothing
   end
   # reset timer
   plast._tcounter[] = zero(Float64)
-  # apply plasticity :
-  ZZZZZZZZZZZZZZZZZZZzzz
-
+  # apply plasticity at each col/row , depending on target
+  wnzvals = nonzeros(conn.weights)
+  for idxs in HeterosynapticIdxsIterator(conn.weights,plast.target)
+    _heterosynaptic_fix!(wnzvals,idxs,plast.method,plast.target)
+  end
   return nothing
 end
