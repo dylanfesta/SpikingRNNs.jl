@@ -6,70 +6,112 @@ using SparseArrays
 using SpikingRNNs; const global S = SpikingRNNs
 using BenchmarkTools
 using ProgressMeter
+import FileIO: save # save raster png
 
 using InvertedIndices
-
-function onesparsemat(w::Real)
-  return sparse(fill(w,(1,1)))
-end
 
 using Random; Random.seed!(0)
 
 ##
-const minval = 0.3
-v_test0 =rand(Exponential(1.0),10_000) 
-#v_test0 = max.(minval,v_test0)
-idx_test0 = sample(1:10_000,800;replace=false)
 
-##
+# let's make a network with strong E-E connections that explodes
 
+# define E population of conductance based EIF neurons
+const dt=0.1E-3
+const Ne = 10
 
-hom_add=S.HeterosynapticAdditive(minval)
-hom_mul=S.HeterosynapticMultiplicative(minval)
-hom_targ = S.HeterosynapticOutgoing(400.0)
-
-v_test = copy(v_test0)
-v_test2 = copy(v_test0)
-v_test3 = copy(v_test0)
-idx_test = copy(idx_test0)
-idx_test2 = copy(idx_test0)
-idx_test3 = copy(idx_test0)
-S._heterosynaptic_fix!(v_test,idx_test,hom_add,hom_targ)
-
-S._heterosynaptic_fix!(v_test2,idx_test2,hom_mul,hom_targ)
-
-S._heterosynaptic_fix2!(v_test3,idx_test3,hom_mul,hom_targ)
+myτe = 20E-3 # seconds
+τrefr= 15E-3 # refractoriness
+vth_e = 20.   # mV
+myτe_ker = 10E-3 # synaptic kernel 
+vthexp = -50.0 # actual threshold for spike-generation
+eifslope = 2.0
+v_rest_e = -70.0
+v_rev_e = 0.0
+v_leak_e = v_rest_e
+v_reset_e = v_rest_e
+Cap = 300.0 #capacitance mF
 
 
-##
+nt_e,ps_e = let sker = S.SKExp(myτe_ker)
+  sgen = S.SpikeGenEIF(vthexp,eifslope)
+  nt = S.NTLIFConductance(sker,sgen,myτe,Cap,
+    vth_e,v_reset_e,v_rest_e,τrefr,v_rev_e)
+  ps = S.PSLIFConductance(nt,Ne)
+  (nt,ps)
+end
 
-@benchmark S._heterosynaptic_fix!(v,idx,$hom_mul,$hom_targ) setup=(v=copy(v_test);idx=copy(idx_test))
-##
-@benchmark S._heterosynaptic_fix2!(v,idx,$hom_mul,$hom_targ) setup=(v=copy(v_test);idx=copy(idx_test))
+## define E to E connections
+const jee = 0.1
+const pee = 0.1
+wmat = S.sparse_constant_wmat(Ne,Ne,pee,jee;no_autapses=true)
+conn_e_e = S.ConnGeneralIF2(wmat)
 
-##
-sum(v_test[idx_test0])
-sum(v_test2[idx_test0])
-sum(v_test3[idx_test0])
-sum(v_test0[idx_test0])
+## define external input of Poisson neurons
+const ext_rate = 30.0
+const je_in = 1000.0
+nt_in,ps_in = let spkgen = S.SGPoisson(ext_rate)
+  sker = S.SKExp(myτe_ker)
+  nt = S.NTInputConductance(spkgen,sker,v_rev_e)
+  ps = S.PSInputPoissonConductance(nt,je_in,Ne)
+  (nt,ps)
+end
 
-minimum(v_test[idx_test0])
-minimum(v_test2[idx_test0])
-minimum(v_test3[idx_test0])
-minimum(v_test0[idx_test0])
+## Connek !
+pop_e = S.Population(ps_e,(conn_e_e,ps_e),(S.FakeConnection(),ps_in))
+myntw = S.RecurrentNetwork(dt,pop_e)
 
-##
+## run for a very short time, and check stability
+const Ttot = 0.5
+const krec = 1
+rec_state_e = S.RecStateNow(ps_e,krec,dt,Ttot)#;idx_save=collect(1:100))
+rec_spikes = S.RecSpikes(ps_e,50.0,Ttot)
 
-wtest = sprand(8,5,0.6)
+## Run
+times = (0:myntw.dt:Ttot)
+nt = length(times)
+# clean up
+S.reset!.([rec_spikes,rec_state_e])
+S.reset!(ps_e)
+S.reset!(conn_e_e)
+# initial conditions
+ps_e.state_now .= rand(Uniform(v_reset_e,-0.1),Ne)
 
-hom_targ_out = S.HeterosynapticOutgoing(400.0)
-hom_targ_in = S.HeterosynapticIncoming(400.0)
-it = S.HeterosynapticIdxsIterator(wtest,hom_targ_out)
-it2 = S.HeterosynapticIdxsIterator(wtest,hom_targ_in)
-##
-
-_ = let u = 0
-  for idxs in it2
-    @show nonzeros(wtest)[idxs]
+@time begin
+  @showprogress 1.0 "network simulation " for (k,t) in enumerate(times)
+    rec_spikes(t,k,myntw)
+    rec_state_e(t,k,myntw)
+    S.dynamics_step!(t,myntw)
   end
 end
+
+
+#S.add_fake_spikes!(vth_e,rec_state_e,rec_spikes)
+## plot a raster
+therast1 = S.raster_png(0.001,rec_spikes;spike_height=3,Nneurons=Ne,Ttot=Ttot);
+save("/tmp/tmp.png",therast1)
+
+## plot the state for one neuron
+
+_ = let neu = 1,
+  plt=plot()
+  plot!(plt,rec_state_e.times,rec_state_e.state_now[neu,:];linewidth=2,leg=false,
+    xlims=(0,1))
+end
+
+spkdic=S.get_spiketimes_dictionary(rec_spikes)
+
+# initial conditions...
+
+# measure all spikes
+
+
+
+
+# now, let's add global inhibitory stabilization (aka cheating fake stabilization)
+
+
+
+# wow, so dynamical stability!  Much asynchronous irregular! 
+
+

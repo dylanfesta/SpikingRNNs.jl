@@ -216,8 +216,6 @@ function local_update!(t_now::Float64,dt::Float64,ps::PSInputPoissonFtMulti)
   return nothing
 end
 
-
-
 ## training with patterns with no consecutive repetitions
 function _patterns_train_uniform(Npatt::Integer,Δt::Real,Ttot::Real)
   times = collect(0.0:Δt:Ttot)
@@ -373,11 +371,165 @@ reset_input!(::PSInputConductance) = nothing
 function reset!(::PSInputConductance{NT}) where {SK,SG,NT<:NTInputConductance{SK,SG}}
   return nothing
 end
-function reset!(::PSInputConductance{NT}) where {SK,NT<:NTInputConductance{SK,SGTrains}}
+function reset!(ps::PSInputConductance{NT}) where {SK,NT<:NTInputConductance{SK,SGTrains}}
   fill!(ps.neurontype.spikegenerator.counter,1)
   return nothing
 end
 function local_update!(t_now::Float64,dt::Float64,ps::PSInputConductance)
   generate_spikes!(t_now,dt,ps.isfiring,ps.neurontype.spikegenerator)
+  return nothing
+end
+
+##### 
+# here I also supplement the Forward signal , for simplicity and efficiency
+# works with FakeConnection only
+# downside : one needs to include the population weight here (vector of weights)
+# other downside : NO PLASTICITY
+# note that input could be correlated, if I define the spike generation in 
+# NTInputConductance accordingly ... but it becomes hacky 
+
+struct PSInputPoissonConductance{NT<:NTInputConductance} <: PSSpikingType{NT}
+  n::Int64 # Must be the same as npost (n neurons that receive the input)
+  neurontype::NT
+  isfiring::BitArray{1}
+  input_weights::Vector{Float64} 
+  trace1::Vector{Float64}  # alas! traces are still needed
+  trace2::Vector{Float64}
+  function PSInputPoissonConductance(nt::NT,weights::Vector{Float64}) where NT<:NeuronType
+    n_neu = length(weights)
+    isfiring=falses(n_neu)
+    tr1 = zeros(n_neu)
+    tr2 = zeros(n_neu)
+    new{NT}(n_neu,nt,isfiring,weights,tr1,tr2)
+  end
+  function PSInputPoissonConductance(nt::NT,weight::Float64,n_neu::Integer) where NT<:NeuronType
+    weights = fill(weight,n_neu)
+    isfiring=falses(n_neu)
+    tr1 = zeros(n_neu)
+    tr2 = zeros(n_neu)
+    new{NT}(n_neu,nt,isfiring,weights,tr1,tr2)
+  end
+end
+function reset!(::PSInputPoissonConductance{NT}) where {SK,SG,NT<:NTInputConductance{SK,SG}}
+  fill!(ps.trace1,0.0)
+  fill!(ps.trace2,0.0)
+  fill!(ps.isfiring,false)
+  return nothing
+end
+# special treatment for train inputs
+function reset!(ps::PSInputPoissonConductance{NT}) where {SK,NT<:NTInputConductance{SK,SGTrains}}
+  fill!(ps.trace1,0.0)
+  fill!(ps.trace2,0.0)
+  fill!(ps.isfiring,false)
+  fill!(ps.neurontype.spikegenerator.counter,1)
+  return nothing
+end
+
+@inline function trace_decay!(dt::Real,ps::PSInputPoissonConductance)
+  trace_decay!(dt,ps.trace1,ps.trace2,ps.neurontype.synaptic_kernel)
+end
+@inline function trace_spike_update!(ps::PSInputPoissonConductance,
+    ::SKExp,idx::Integer)
+  ps.trace1[idx] += ps.input_weights[idx]
+  return nothing
+end
+@inline function trace_spike_update!(ps::PSInputPoissonConductance,
+    ::SKExpDiff,idx::Integer)
+  ps.trace1[idx] += ps.input_weights[idx]
+  ps.trace2[idx] += ps.input_weights[idx]
+  return nothing
+end
+
+function forward_signal!(t_now::Real,dt::Real,
+      pspost::PSLIFConductance,::FakeConnection,
+      pspre::PSInputPoissonConductance)
+  preneu = pspre.neurontype
+  pre_v_reversal = preneu.v_reversal
+  pre_synker = preneu.synaptic_kernel
+  # traces time decay (here or at the end? meh)
+  trace_decay!(dt,pspre)
+  # update spikes 
+  generate_spikes!(t_now,dt,pspre.isfiring,preneu.spikegenerator)
+  @inbounds for (i,isfiring) in enumerate(pspre.isfiring)
+    if isfiring
+      if (!pspost.isrefractory[i]) # assuming i pre connected to i post !
+      # pass the signal if not refractory
+        postsynaptic_kernel_update!(pspost.input,pspost.state_now,
+          pspre.trace1,pspre.trace2,pre_synker,pre_v_reversal,i)
+      end
+      # increment traces of spiking neurons
+      trace_spike_update!(pspre,pre_synker,i)
+    end
+  end
+  return nothing
+end
+
+
+
+# Inhibitory stabilization
+
+# from Fiete et al , 2010 , Neuron
+# not a firing neuron type! More like an input type 
+# all constants here, works with FakeConnection only
+struct NTConductanceInputInhibitoryStabilization <:NeuronType
+  Vreversal::Float64
+  Aglo::Float64
+  Aloc::Float64
+  τglo::Float64
+  τloc::Float64
+end
+struct PSConductanceInptuInhibitionStabilization <: PopulationState{NTConductanceInputInhibitoryStabilization}
+  neurontype::NTConductanceInputInhibitoryStabilization
+  n::Int64 # size of stabilized E population
+  post_loc_traces::Vector{Float64}
+  post_glo_trace::Ref{Float64}
+end
+function reset!(ps::PSConductanceInptuInhibitionStabilization)
+  fill!(ps.post_loc_traces,0.0)
+  ps.post_glo_trace[]=0.0
+  return nothing
+end
+
+# traces decay in time
+@inline function trace_decay!(dt::Real,ps::PSConductanceInptuInhibitionStabilization)
+  ps.post_loc_traces .*= exp(-dt/ps.neurontype.τloc)
+  ps.post_glo_trace[] *= exp(-dt/ps.neurontype.τglo) 
+end
+
+# adds 1 to traces
+function trace_spike_update!(ps::PSConductanceInptuInhibitionStabilization,
+    isfiring::BitArray{1})
+  @inbounds for i in eachindex(isfiring)
+    ps.post_loc_traces[i] += 1.0
+    ps.post_glo_trace[] += 1.0
+  end
+  return nothing
+end
+
+# This function should never be called anyway!
+# because this PS does not need to appear as pre in a Population object 
+function local_update!(::Float64,::Float64,
+      ::PSConductanceInptuInhibitionStabilization)
+  return nothing # nothing to update, traces decay in the forward signal function
+end
+
+function forward_signal!(t_now::Real,dt::Real,
+      pspost::PSLIFConductance,::FakeConnection,
+      pspre::PSConductanceInptuInhibitionStabilization)
+  preneu = pspre.neurontype
+	# add the currents to postsynaptic input
+	# ONLY non-refractory neurons
+	@inbounds @simd for i in eachindex(pspost.input)
+    if ! pspost.isrefractory[i]
+      ker_loc = preneu.Aloc*pspre.post_loc_traces[i]
+      ker_glo = preneu.Aglo*pspre.post_glo_trace[]
+	    pspost.input[i] += (ker_loc+ker_glo)*(preneu.Vreversal - pspost.state_now[i])
+		end
+	end
+  # traces time decay
+  trace_decay!(dt,pspre)
+  # update traces with spiking neurons
+	trace_spike_update!(pspre,pspost.isfiring)
+  # all done !
   return nothing
 end

@@ -11,9 +11,30 @@ and different spike generating functions (None, or Exp)
 struct SKExp <: SynapticKernel
   τ::Float64
 end
-@inline function (sk::SKExp)(x::Real)
+
+# Input update for conductance based IF neurons, assuming the kernel takes
+# at most two traces arguments (as in diff of exponentials)  
+@inline function postsynaptic_kernel_update!(input::Vector{R},post_state::Vector{R},
+    post_trace1::Vector{R},post_trace2::Vector{R},pre_synkernel::SynapticKernel,
+    pre_v_reversal::R,idx::Integer) where R
+  ker_term = pre_synkernel(post_trace1[idx],post_trace2[idx])
+	input[idx] += ker_term*(pre_v_reversal - post_state[idx])
+  return nothing
+end
+
+# # this function is not needed
+# @inline function (sk::SKExp)(x::Real)
+#   return x/sk.τ
+# end
+@inline function (sk::SKExp)(x::Real,::Real)
   return x/sk.τ
 end
+@inline function trace_spike_update!(w::R,trace1::Vector{R},::Vector{R},
+    ::SKExp,idx::Integer) where R
+  trace1[idx] += w  
+end
+
+# difference of exponentials, needs two traces
 struct SKExpDiff <: SynapticKernel
   τ_plus::Float64
   τ_minus::Float64
@@ -21,6 +42,12 @@ end
 @inline function (sk::SKExpDiff)(x_plus::Real,x_minus::Real)
   return (x_plus-x_minus) / (sk.τ_plus-sk.τ_minus)
 end
+@inline function trace_spike_update!(w::R,trace1::Vector{R},trace2::Vector{R},
+    ::SKExpDiff,idx::Integer) where R
+  trace1[idx] += w  
+  trace2[idx] += w  
+end
+
 
 # abstract type SpikeGenFunction end # moved to main file
 struct SpikeGenNone <: SpikeGenFunction end
@@ -86,61 +113,28 @@ end
 # use ConnGeneralIF2
 
 @inline function trace_spike_update!(conn::ConnGeneralIF2,
-    w::Real,::SKExp,post_idx::Integer)
+    w::Real,pre_sker::SynapticKernel,post_idx::Integer)
   # not normalized by taus  
-	conn.post_trace1[post_idx] += w
-  return nothing
+  return trace_spike_update!(w,conn.post_trace1,conn.post_trace2,pre_sker,post_idx)
 end
-@inline function trace_spike_update!(conn::ConnGeneralIF2,
-    w::Float64,::SKExpDiff,post_idx::Integer)
-  # not normalized by taus  
-	conn.post_trace1[post_idx] += w
-	conn.post_trace2[post_idx] += w
-  return nothing
-end
-
-# synaptic kernel as conductance
 
 @inline function postsynaptic_kernel_update!(pspost::PopulationState,
-     conn::ConnGeneralIF2,pre_synkernel::SKExp,pre_v_reversal::Float64,idx::Integer) 
-	pspost.input[idx] += pre_synkernel(conn.post_trace1[idx]) * 
-      (pre_v_reversal - pspost.state_now[idx])
-  return nothing
-end
-@inline function postsynaptic_kernel_update!(pspost::PopulationState,
-     conn::ConnGeneralIF2,pre_synkernel::SKExpDiff,pre_v_reversal::Float64,idx::Integer)
-  ker_term = pre_synkernel(conn.post_trace1[idx],conn.post_trace2[idx])
-	pspost.input[idx] += ker_term*(pre_v_reversal - pspost.state_now[idx])
-  return nothing
+     conn::ConnGeneralIF2,pre_synkernel::SynapticKernel,pre_v_reversal::Float64,idx::Integer)
+  return postsynaptic_kernel_update!(pspost.input,pspost.state_now,
+    conn.post_trace1,conn.post_trace2,pre_synkernel,
+    pre_v_reversal,idx)
 end
 
-# @inline function postsynaptic_kernel_update!(pspost::PopulationState,
-#    conn::ConnGeneralIF2,pspre::PSLIFConductance{NT},
-#    idx::Integer) where {SGen,NT<:NTLIFConductance{SKExp,SGen}}
-# 	pspost.input[idx] += pspre.neurontype.synaptic_kernel(conn.post_trace1[idx]) * 
-#     (pspre.neurontype.v_reversal - pspost.state_now[idx])
-#   return nothing
-# end
-# @inline function postsynaptic_kernel_update!(pspost::PopulationState,
-#    conn::ConnGeneralIF2,pspre::PSLIFConductance{NT},
-#    idx::Integer) where {SGen,NT<:NTLIFConductance{SKExpDiff,SGen}}
-#   ker_term = pspre.neurontype.synaptic_kernel(conn.post_trace1[idx],conn.post_trace2[idx])
-# 	pspost.input[idx] += ker_term*(pspre.neurontype.v_reversal - pspost.state_now[idx])
-#   return nothing
-# end
-
-
-@inline function trace_decay!(conn::ConnGeneralIF2,dt::Real,pre_synkernel::SKExpDiff) 
-	@inbounds @simd for i in eachindex(conn.post_trace1)
-		conn.post_trace1[i] -= dt*conn.post_trace1[i] / pre_synkernel.τ_plus
-		conn.post_trace2[i] -= dt*conn.post_trace2[i] / pre_synkernel.τ_minus
-	end
+@inline function trace_decay!(dt::Real,conn::ConnGeneralIF2,synker::SynapticKernel)
+  return trace_decay!(dt,conn.post_trace1,conn.post_trace2,synker)
+end
+@inline function trace_decay!(dt::R,tr1::Vector{R},::Vector{R},sk::SKExp) where R
+  tr1 .*= exp(-dt/sk.τ)
   return nothing
 end
-@inline function trace_decay!(conn::ConnGeneralIF2,dt::Real,pre_synkernel::SKExp) 
-	@inbounds @simd for i in eachindex(conn.post_trace1)
-		conn.post_trace1[i] -= dt*conn.post_trace1[i] / pre_synkernel.τ
-	end
+@inline function trace_decay!(dt::R,tr1::Vector{R},tr2::Vector{R},sk::SKExpDiff) where R
+  tr1 .*= exp(-dt/sk.τ_plus)
+  tr2 .*= exp(-dt/sk.τ_minus)
   return nothing
 end
 
@@ -176,13 +170,12 @@ function forward_signal!(t_now::Real,dt::Real,
 	end
 	# add the currents to postsynaptic input
 	# ONLY non-refractory neurons
-	post_refr = findall(pspost.isrefractory) # refractory ones
 	@inbounds @simd for i in eachindex(pspost.input)
-		if !(i in post_refr)
+		if ! pspost.isrefractory[i]
       postsynaptic_kernel_update!(pspost,conn,pre_synker,pre_v_reversal,i)
 		end
 	end
   # finally, all postsynaptic conductances decay in time
-  trace_decay!(conn,dt,pre_synker)
+  trace_decay!(dt,conn,pre_synker)
   return nothing
 end

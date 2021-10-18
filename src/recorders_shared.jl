@@ -29,7 +29,7 @@ function reset!(rec::RecStateNow)
   return nothing
 end
 
-function (rec::RecStateNow)(t::Float64,k::Integer,ntw::AbstractNetwork)
+function (rec::RecStateNow)(t::Float64,k::Integer,::AbstractNetwork)
   # I assume k starts from 1, which corresponds to t=0
   kless,_rem=divrem((k-1-rec.k_warmup),rec.krec)
   kless += 1 # vector index must start from 1
@@ -161,14 +161,21 @@ end
 # voltage_traces : rows are neurons, columns are timesteps
 function add_fake_spikes!(v_spike::R,voltage_times::Vector{R},
     voltage_traces::Matrix{R},
-    spiketimes::Vector{R},spikeneurons::Vector{<:Integer}) where R
+    spiketimes::Vector{R},
+    spikeneurons::Vector{I},
+    idx_save::Vector{I}) where {R,I}
   c=1
+  if isempty(idx_save)
+    idx_save = collect(1:size(voltage_traces,1))
+  end
   for (k,t) in enumerate(voltage_times)
     if checkbounds(Bool,spiketimes,c)
       next_spike = spiketimes[c]
       if t >= next_spike
-        spikeneuron = spikeneurons[c]
-        voltage_traces[spikeneuron,k] = v_spike
+        idx_neu = findfirst(==(spikeneurons[c]),idx_save)
+        if !isnothing(idx_neu)
+          voltage_traces[idx_neu,k] = v_spike
+        end
         c+=1
       end
     end
@@ -178,7 +185,7 @@ end
 
 function add_fake_spikes!(v_spike::Float64,rtrace::RecStateNow,rspk::RecSpikes)
   return add_fake_spikes!(v_spike,rtrace.times,rtrace.state_now,
-    rspk.spiketimes,rspk.spikeneurons)
+    rspk.spiketimes,rspk.spikeneurons,rtrace.idx_save)
 end
 
 ##
@@ -209,8 +216,15 @@ function raster_png(dt::Float64,rspk::RecSpikes ;
     Ttot::Float64=0.0,spike_height::Int64=5,
     reorder::Vector{Int64}=Int64[])
   spkt,spkn = get_spiketimes_spikeneurons(rspk)
-  Ttot = max(Ttot, maximum(spkt)+dt)
-  Nneurons = max(Nneurons,maximum(spkn))
+  Ttot = let maxt =  isempty(spkt) ? Ttot : maximum(spkt)+dt
+    max(Ttot, maxt)
+  end
+  if isempty(spkn) && Nneurons==-1
+    error("no spikes recorded ! Impossible to determine the total number of neurons, please set it")
+  end
+  Nneurons = let maxn = isempty(spkn) ? Nneurons : maximum(spkn)
+     max(Nneurons,maxn)
+  end
   tbins = rspk.t_warmup-eps(rspk.t_warmup):dt:Ttot
   ntimes = length(tbins)-1
   rasterbin = falses(Nneurons,ntimes)

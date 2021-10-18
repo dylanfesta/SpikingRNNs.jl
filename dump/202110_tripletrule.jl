@@ -51,7 +51,6 @@ function get_weight_change(Δt_ro::R,plasticity::S.PlasticityRule;
   myntw = S.RecurrentNetwork(dt,pop_all)
   rec_weights = S.RecWeights(conn_all,krec,dt,Ttot)
   times = (0:myntw.dt:Ttot)
-  nt = length(times)
   S.reset!(rec_weights)
   S.reset!(ps_all)
   S.reset!(conn_all)
