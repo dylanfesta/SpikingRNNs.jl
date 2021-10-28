@@ -145,11 +145,13 @@ function local_update!(t_now::Float64,dt::Float64,ps::PSLIFConductance)
   # dv =  (v_leak - v ) dt / τ + I dt / Cap
   dttau =  dt / ps.neurontype.τ_post
   dtCap = dt / ps.neurontype.capacitance
-  @. begin 
-   ps.alloc_dv = (ps.neurontype.v_leak - ps.state_now)*dttau + ps.input*dtCap +
-     ps.neurontype.spikegen(ps.state_now)*dttau
+  @inbounds for i in eachindex(ps.state_now)
+    state_now = ps.state_now[i]
+    state_now += (  (ps.neurontype.v_leak - state_now)*dttau + 
+      ps.input[i]*dtCap +
+      ps.neurontype.spikegen(state_now)*dttau )
+    ps.state_now[i] = state_now
   end
-  ps.state_now .+= ps.alloc_dv # v_{t+1} = v_t + dv
 	# update spikes and refractoriness, and end
   return _spiking_state_update!(ps.state_now,ps.isfiring,ps.isrefractory,ps.last_fired,
     t_now,ps.neurontype.τ_refractory,ps.neurontype.v_threshold,ps.neurontype.v_reset)

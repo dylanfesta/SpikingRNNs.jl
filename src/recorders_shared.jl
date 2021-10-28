@@ -216,11 +216,15 @@ function raster_png(dt::Float64,rspk::RecSpikes ;
     Ttot::Float64=0.0,spike_height::Int64=5,
     reorder::Vector{Int64}=Int64[])
   spkt,spkn = get_spiketimes_spikeneurons(rspk)
+  if isempty(spkn) && (Nneurons==-1 || Ttot==0.0)
+    error("""
+     No spikes recorded ! 
+    Impossible to determine the image size. 
+    Please set the parameters `Nneurons` and `Ttot`
+    """)
+  end
   Ttot = let maxt =  isempty(spkt) ? Ttot : maximum(spkt)+dt
     max(Ttot, maxt)
-  end
-  if isempty(spkn) && Nneurons==-1
-    error("no spikes recorded ! Impossible to determine the total number of neurons, please set it")
   end
   Nneurons = let maxn = isempty(spkn) ? Nneurons : maximum(spkn)
      max(Nneurons,maxn)

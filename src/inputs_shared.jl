@@ -217,61 +217,67 @@ function local_update!(t_now::Float64,dt::Float64,ps::PSInputPoissonFtMulti)
 end
 
 ## training with patterns with no consecutive repetitions
-function _patterns_train_uniform(Npatt::Integer,Δt::Real,Ttot::Real)
-  times = collect(0.0:Δt:Ttot)
-  ntimes = length(times)
-  nreps = ceil(Integer,ntimes/Npatt)
-  last_patt = Npatt+1
-  _seq = Vector{Vector{Int64}}(undef,nreps)
-  for s in eachindex(_seq)
-    _ss = shuffle(1:Npatt)
+function _generate_uniform_pattern_sequence(Npatterns::Integer,Ntrials::Integer)
+  nreps = ceil(Integer,Ntrials/Npatterns)
+  last_patt = 0
+  _seq = Vector{Int64}[]
+  for _ in 1:nreps
+    _ss = shuffle(1:Npatterns)
     while _ss[1] == last_patt
       shuffle!(_ss)
     end
     last_patt = _ss[end]
-    _seq[s] = _ss
+    push!(_seq,_ss)
   end
-  patt_seq = vcat(_seq...)[1:ntimes-1]
-  return times,patt_seq
+  patt_seq = vcat(_seq...)[1:Ntrials]
+  return patt_seq
 end
 
-
-# function binary_patterns_mat(Nneus::Integer,pattern_idx::Vector{T},low_val::Float64,
-#     high_val::Real) where T<:NamedTuple
-#   Npatt=length(pattern_idx)
-#   ret = fill(low_val,Nneus,Npatt+1)
-#   for p in 1:Npatt
-#     ret[pattern_idx[p].neupost,p] .= high_val
-#   end
-#   return ret
-# end
-
-function pattern_functor(Δt::R,Ttot::R,low::R,high::R,
-    idxs_patternpop::Vector{Vector{Int64}} ; 
-    t_pattern_delay::R=0.0) where R<:Real
-  # make pattern sequence
-  Npatt = length(idxs_patternpop)
-  patttimes, patt_seq = _patterns_train_uniform(Npatt,Δt,Ttot-t_pattern_delay)
-  # Generate full scale patterns
-  npre = maximum(maximum,idxs_patternpop)
-  fullp = [fill(low,npre)  for _ in 1:Npatt+1]
-  for i in 1:Npatt
-    fullp[i][idxs_patternpop[i]] .= high
-  end
-  # generate the function
-  function retfun(t::R)
-    td = t-t_pattern_delay
-    it = searchsortedfirst(patttimes,td)-1
-    #@show it
-    #@show length(patt_seq)
-    if checkbounds(Bool,patt_seq,it)
-      idx = patt_seq[it]
+# primitive for low-level tuning
+function _make_pattern_function(pattern_sequence::Vector{<:Integer},
+    pattern_times::Vector{R},full_patterns::Vector{Vector{R}}) where R
+  retfun = function (t::R)
+    it = searchsortedfirst(pattern_times,t)-1
+    if checkbounds(Bool,pattern_sequence,it)
+      idx = pattern_sequence[it]
     else
       idx = Npatt+1
     end
-    return fullp[idx]
-  end
+    return full_patterns[idx]
+  end 
   return retfun
+end
+
+# but is it a functor ?
+function pattern_functor(Δt::R,Ttot::R,
+    low::R,high::R,
+    npost::Integer,
+    idxs_patternpop::Vector{Vector{Int64}} ; 
+    Δt_pattern_blank::R=0.0,
+    t_pattern_delay::R=0.0) where R<:Real
+  # time vector
+  ts_pattern_start = collect(range(t_pattern_delay,Ttot;step=Δt+Δt_pattern_blank))
+  # make pattern sequence
+  Npatt = length(idxs_patternpop)
+  patt_seq = _generate_uniform_pattern_sequence(Npatt,length(ts_pattern_start)-1)
+  # must add blanks
+  if Δt_pattern_blank > 0.0
+    blank_seq = fill(Npatt+1,length(patt_seq))
+    patt_seq = [transpose(hcat(patt_seq,blank_seq))...]
+    patttimes = repeat(ts_pattern_start;inner=2)[2:end]
+    for i in 2:2:length(patttimes)
+      patttimes[i] -=Δt_pattern_blank
+    end
+  else
+    patttimes = ts_pattern_start
+  end
+  # Generate full scale patterns
+  fullp = map(_->fill(low,npost), 1:(Npatt+1))
+  for (i,pattidxs) in enumerate(idxs_patternpop)
+    fullp[i][pattidxs] .= high
+  end
+  # generate the function and return it
+  return _make_pattern_function(patt_seq,patttimes,fullp)
 end
 
 
@@ -326,6 +332,12 @@ function generate_spikes!(t_now::Float64,dt::Float64,isfiring::BitArray{1},sg::S
     end
   end
   return nothing
+end
+
+# for exact spike generation, I need an upper bound for the instantaneous rate
+struct SGPoissonFExact <: SpikeGenerator
+  ratefunction::Function # (t::Float64,i::Int64) -> rate_i::Float64
+  ratefunction_upper::Function # (t::Float64,i::Int64) -> rate_i::Float64
 end
 
 struct SGTrains <: SpikeGenerator
@@ -410,7 +422,7 @@ struct PSInputPoissonConductance{NT<:NTInputConductance} <: PSSpikingType{NT}
     new{NT}(n_neu,nt,isfiring,weights,tr1,tr2)
   end
 end
-function reset!(::PSInputPoissonConductance{NT}) where {SK,SG,NT<:NTInputConductance{SK,SG}}
+function reset!(ps::PSInputPoissonConductance{NT}) where {SK,SG,NT<:NTInputConductance{SK,SG}}
   fill!(ps.trace1,0.0)
   fill!(ps.trace2,0.0)
   fill!(ps.isfiring,false)
@@ -428,17 +440,6 @@ end
 @inline function trace_decay!(dt::Real,ps::PSInputPoissonConductance)
   trace_decay!(dt,ps.trace1,ps.trace2,ps.neurontype.synaptic_kernel)
 end
-@inline function trace_spike_update!(ps::PSInputPoissonConductance,
-    ::SKExp,idx::Integer)
-  ps.trace1[idx] += ps.input_weights[idx]
-  return nothing
-end
-@inline function trace_spike_update!(ps::PSInputPoissonConductance,
-    ::SKExpDiff,idx::Integer)
-  ps.trace1[idx] += ps.input_weights[idx]
-  ps.trace2[idx] += ps.input_weights[idx]
-  return nothing
-end
 
 function forward_signal!(t_now::Real,dt::Real,
       pspost::PSLIFConductance,::FakeConnection,
@@ -450,21 +451,169 @@ function forward_signal!(t_now::Real,dt::Real,
   trace_decay!(dt,pspre)
   # update spikes 
   generate_spikes!(t_now,dt,pspre.isfiring,preneu.spikegenerator)
-  @inbounds for (i,isfiring) in enumerate(pspre.isfiring)
-    if isfiring
-      if (!pspost.isrefractory[i]) # assuming i pre connected to i post !
-      # pass the signal if not refractory
-        postsynaptic_kernel_update!(pspost.input,pspost.state_now,
-          pspre.trace1,pspre.trace2,pre_synker,pre_v_reversal,i)
-      end
+  @inbounds for (i,firing) in enumerate(pspre.isfiring)
+    # update trace if firing
+    if firing
       # increment traces of spiking neurons
-      trace_spike_update!(pspre,pre_synker,i)
+      # function defined in lif_conductance.jl
+      trace_spike_update!(pspre.input_weights[i],pspre.trace1,pspre.trace2,pre_synker,i)
+    end
+    # update ALL inputs with synaptic traces, unless refractory
+    if !pspost.isrefractory[i]
+      # function defined in lif_conductance.jl
+      postsynaptic_kernel_update!(pspost.input,pspost.state_now,
+          pspre.trace1,pspre.trace2,pre_synker,pre_v_reversal,i)
+    end
+  end
+  return nothing
+end
+
+#####
+# but what happens when the input rate is >> dt ? 
+# reducing dt would be extremely unefficient... so
+# NEW input implementation wiht EXACT spike timing
+# and multiple update of traces when needed
+
+
+# Thinning algorith, e.g.  Laub,Taimre,Pollet 2015
+function _rand_by_thinning(t_start::Real,get_rate::Function,get_rate_upper::Function;
+    Tmax=50.0,nowarning::Bool=false)
+  t = t_start 
+  while (t-t_start)<Tmax # Tmax is upper limit, if rate too low 
+    rup = get_rate_upper(t)
+    Δt = rand(Exponential(inv(rup)))
+    t = t+Δt
+    u = rand(Uniform(0,rup))
+    if u <= get_rate(t) 
+      return t
+    end
+  end
+  # if we are above Tmax, just return upper limit
+  if !nowarning
+    @warn "Upper limit reached, input firing below $(inv(Tmax)) Hz"
+  end
+  return Tmax + t_start
+end
+
+struct PSInputPoissonConductanceExact{NT<:NTInputConductance} <: PSSpikingType{NT}
+  n::Int64 # Must be the same as npost (n neurons that receive the input)
+  neurontype::NT
+  firingtimes::Vector{Float64}
+  input_weights::Vector{Float64} 
+  trace1::Vector{Float64}  # alas! traces are still needed
+  trace2::Vector{Float64}
+  function PSInputPoissonConductanceExact(nt::NT,weights::Vector{Float64}) where NT<:NeuronType
+    n_neu = length(weights)
+    tr1,tr2,firingtimes = ntuple(_->Vector{Float64}(undef,n_neu),3)
+    ret = new{NT}(n_neu,nt,firingtimes,weights,tr1,tr2)
+    reset!(ret)
+    return ret
+  end
+  function PSInputPoissonConductanceExact(nt::NT,weight::Float64,n_neu::Integer) where NT<:NeuronType
+    weights = fill(weight,n_neu)
+    tr1,tr2,firingtimes = ntuple(_->Vector{Float64}(undef,n_neu),3)
+    ret = new{NT}(n_neu,nt,firingtimes,weights,tr1,tr2)
+    reset!(ret)
+    return ret
+  end
+end
+
+function _get_spiketime_update(t_current_spike::Real,sg::SGPoisson,::Integer)
+  return t_current_spike + rand(Exponential())/sg.rate
+end
+
+function _get_spiketime_update(t_current_spike::Real,sg::SGPoissonMulti,i::Integer)
+  return t_current_spike + rand(Exponential())/sg.rates[i]
+end
+
+function _get_spiketime_update(::Real,sg::SGTrains,i::Integer)
+  # note that t_current_spike is expected to be 
+  # sg.trains[i][counter[i]] (before counter update)
+  c = sg.counter[i]
+  if checkbounds(Bool,sg.trains[i],c+1) 
+    sg.counter[i] = c+1    # move counter forward
+    return sg.trains[i][c+1] # return next spike time
+  else
+    return Inf
+  end 
+end
+function _get_spiketime_update(::Real,sg::SGPoissonMultiF,i::Integer)
+  return error("please define input using `SGPoissonFExact`")
+end
+
+function _get_spiketime_update(t_current_spike::Real,sg::SGPoissonFExact,i::Integer)
+  Δt = _rand_by_thinning(t_current_spike,
+    t->sg.ratefunction(t,i),t->sg.ratefunctionupper(t,i))
+  return t_current_spike + Δt
+end
+
+# in this case reset is an initialization step... 
+# which means I need to compute all first spike proposals
+
+
+function reset!(ps::PSInputPoissonConductanceExact{NT}) where {SK,SG,NT<:NTInputConductance{SK,SG}}
+  fill!(ps.trace1,0.0)
+  fill!(ps.trace2,0.0)
+  sgen = ps.neurontype.spikegenerator
+  for i in eachindex(ps.firingtimes)
+    ps.firingtimes[i] = _get_spiketime_update(0.0,sgen,i)
+  end
+  # special treatment for train inputs
+  if hasproperty(sgen,:counter)
+    fill!(sgen.counter,1)
+  end
+  return nothing
+end
+
+@inline function trace_decay!(dt::Real,ps::PSInputPoissonConductanceExact)
+  trace_decay!(dt,ps.trace1,ps.trace2,ps.neurontype.synaptic_kernel)
+end
+
+function forward_signal!(t_now::Real,dt::Real,
+      pspost::PSLIFConductance,::FakeConnection,
+      pspre::PSInputPoissonConductanceExact)
+  preneu = pspre.neurontype
+  pre_v_reversal = preneu.v_reversal
+  pre_synker = preneu.synaptic_kernel
+  # traces time decay (here or at the end? meh)
+  trace_decay!(dt,pspre)
+  # this is an alternative to the code below 
+  # # if t_now moved past a spiketime...
+  # idxs_past = findall(t_now .>= pspre.spiketimes)
+  # while !isempty(idxs_past)
+  #   for i in idxs_past
+  #     # increment traces of spiking neurons
+  #     # function defined in lif_conductance.jl
+  #     trace_spike_update!(pspre.input_weights[i],pspre.trace1,pspre.trace2,pre_synker,i)
+  #     # update spiketime
+  #     pspre.spiketimes[i] = _get_spiketime_update(t_spike,sgen,i)
+  #   end
+  #   idxs_past = findall(t_now .>= pspre.spiketimes)
+  # end
+  for i in 1:n
+    tspike = pspre.spiketimes[i]
+    weight_i =  pspre.input_weights[i]
+    while t_now >= tspike
+      # increment traces of spiking neurons
+      # function defined in lif_conductance.jl
+      trace_spike_update!(weight_i,pspre.trace1,pspre.trace2,pre_synker,i)
+      # update spiketime
+      tspike = _get_spiketime_update(t_spike,sgen,i)
+    end
+    pspre.spiketimes[i]=tspike
+  end
+  @inbounds @simd for i in eachindex(pspost.input)
+    if ! pspost.isrefractory[i]
+    # function defined in lif_conductance.jl
+    postsynaptic_kernel_update!(pspost.input,pspost.state_now,
+            pspre.trace1,pspre.trace2,pre_synker,pre_v_reversal,i)
     end
   end
   return nothing
 end
 
 
+#################################
 
 # Inhibitory stabilization
 
@@ -472,36 +621,47 @@ end
 # not a firing neuron type! More like an input type 
 # all constants here, works with FakeConnection only
 struct NTConductanceInputInhibitoryStabilization <:NeuronType
-  Vreversal::Float64
+  v_reversal::Float64
   Aglo::Float64
   Aloc::Float64
   τglo::Float64
   τloc::Float64
 end
-struct PSConductanceInptuInhibitionStabilization <: PopulationState{NTConductanceInputInhibitoryStabilization}
+struct PSConductanceInputInhibitionStabilization <: PopulationState{NTConductanceInputInhibitoryStabilization}
   neurontype::NTConductanceInputInhibitoryStabilization
   n::Int64 # size of stabilized E population
   post_loc_traces::Vector{Float64}
   post_glo_trace::Ref{Float64}
 end
-function reset!(ps::PSConductanceInptuInhibitionStabilization)
+function PSConductanceInputInhibitionStabilization(
+    v_reversal::R,Aglo::R,Aloc::R,τglo::R,τloc::R,n::Integer) where R
+  nt = NTConductanceInputInhibitoryStabilization(v_reversal,Aglo,Aloc,τglo,τloc)
+  loc_traces = zeros(n)
+  glo_trace = Ref(0.0)
+  return PSConductanceInputInhibitionStabilization(nt,n,
+    loc_traces,glo_trace)
+end
+
+function reset!(ps::PSConductanceInputInhibitionStabilization)
   fill!(ps.post_loc_traces,0.0)
   ps.post_glo_trace[]=0.0
   return nothing
 end
 
 # traces decay in time
-@inline function trace_decay!(dt::Real,ps::PSConductanceInptuInhibitionStabilization)
+@inline function trace_decay!(dt::Real,ps::PSConductanceInputInhibitionStabilization)
   ps.post_loc_traces .*= exp(-dt/ps.neurontype.τloc)
   ps.post_glo_trace[] *= exp(-dt/ps.neurontype.τglo) 
 end
 
 # adds 1 to traces
-function trace_spike_update!(ps::PSConductanceInptuInhibitionStabilization,
+function trace_spike_update!(ps::PSConductanceInputInhibitionStabilization,
     isfiring::BitArray{1})
-  @inbounds for i in eachindex(isfiring)
-    ps.post_loc_traces[i] += 1.0
-    ps.post_glo_trace[] += 1.0
+  @inbounds for (i,firing) in enumerate(isfiring)
+    if firing
+      ps.post_loc_traces[i] += 1.0
+      ps.post_glo_trace[] += 1.0
+    end
   end
   return nothing
 end
@@ -509,21 +669,21 @@ end
 # This function should never be called anyway!
 # because this PS does not need to appear as pre in a Population object 
 function local_update!(::Float64,::Float64,
-      ::PSConductanceInptuInhibitionStabilization)
+      ::PSConductanceInputInhibitionStabilization)
   return nothing # nothing to update, traces decay in the forward signal function
 end
 
 function forward_signal!(t_now::Real,dt::Real,
       pspost::PSLIFConductance,::FakeConnection,
-      pspre::PSConductanceInptuInhibitionStabilization)
+      pspre::PSConductanceInputInhibitionStabilization)
   preneu = pspre.neurontype
 	# add the currents to postsynaptic input
 	# ONLY non-refractory neurons
 	@inbounds @simd for i in eachindex(pspost.input)
     if ! pspost.isrefractory[i]
-      ker_loc = preneu.Aloc*pspre.post_loc_traces[i]
-      ker_glo = preneu.Aglo*pspre.post_glo_trace[]
-	    pspost.input[i] += (ker_loc+ker_glo)*(preneu.Vreversal - pspost.state_now[i])
+      ker_loc = preneu.Aloc*pspre.post_loc_traces[i]/preneu.τloc
+      ker_glo = preneu.Aglo*pspre.post_glo_trace[]/(pspre.n*preneu.τglo)
+	    pspost.input[i] += (ker_loc+ker_glo)*(preneu.v_reversal - pspost.state_now[i])
 		end
 	end
   # traces time decay

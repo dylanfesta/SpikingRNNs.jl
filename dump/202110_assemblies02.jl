@@ -1,8 +1,3 @@
-#=
-Simplest case : input only.
-No recurrence or inhibition here
-=#
-
 
 push!(LOAD_PATH, abspath(@__DIR__,".."))
 
@@ -20,23 +15,23 @@ const Ne = 500
 const Ni = 0
 const Ntot = Ne+Ni
 
-const Nas = 3
-const p_as = 0.20
+const Nas = 5
+const p_as = 0.2
 
 const Δt_as = 0.5
-const Ttot = 25.0
+const Ttot = 15.0
 
 # input to all neurons
-const lowrate = 5.0
+const lowrate = 10.0
 # additional input to assembly neurons
-const highrate = 50.0
+const highrate = 200.0
 const t_as_delay = 2.0
 ##
 
 as_idxs = map(_->findall(rand(Ne) .< p_as),1:Nas)
 
 inputfun=S.pattern_functor(Δt_as,Ttot,lowrate,highrate,Ntot,
-  as_idxs;t_pattern_delay=t_as_delay,Δt_pattern_blank=1.5)
+  as_idxs;t_pattern_delay=t_as_delay)
 
 
 ## let's visualize it !
@@ -67,7 +62,7 @@ const v_rev_e = 0.0
 const vth_e = 20.0
 const v_reset_e = -60.0
 const v_rest_e = -60.0
-const τrefr  = 20E-3
+const τrefr  = 10E-3
 nt_e = let sker = S.SKExpDiff(taueplus,taueminus)
   sgen = S.SpikeGenEIF(vthexp,eifslope)
   S.NTLIFConductance(sker,sgen,τe,Cap,
@@ -76,16 +71,53 @@ end
 ps_e = S.PSLIFConductance(nt_e,Ne)
 
 
-const w_in = 150.0
+const w_in = 100.0
 nt_in = let sker = S.SKExpDiff(taueplus,taueminus)
   sgen = S.SGPoissonMultiF(inputfun)
   S.NTInputConductance(sgen,sker,v_rev_e) 
 end
 ps_in = S.PSInputPoissonConductance(nt_in,w_in,Ntot)
 
-##
+## now define E to E connections
+# with triplets plasticity rule!
+const jee = 6.0 # this should scale as sqrt(Ne), or something like that
+const pee = 0.2
+wmat_start = S.sparse_constant_wmat(Ne,Ne,pee,jee;no_autapses=true)
+# now the plasticity
+# parameters from Augiste's code
+triplets_plasticity = let τplus = 20E-3,
+  τplus = 25E-3 # 16.8 
+  τminus = 33E-3 # 33.7
+  τx = 100E-3 # 101
+  τy = 120E-3 # 125
+  plast_eps = 5E-5
+  A2plus = 0.075*plast_eps
+  A3plus = 9.3*plast_eps
+  A2minus = 7.0*plast_eps
+  A3minus = 0.2*plast_eps
+  (n_post,n_pre) = size(wmat_start)
+  S.PlasticityTriplets(τplus,τminus,τx,τy,A2plus,A3plus,
+    A2minus,A3minus,n_post,n_pre)
+end
 
-pop_e = S.Population(ps_e,(S.FakeConnection(),ps_in))
+conn_e_e = S.ConnGeneralIF2(copy(wmat_start),triplets_plasticity)
+
+
+## Now add stabilization to E neurons 
+
+ps_istab = let v_rev_i = v_reset_e
+  Aloc = 800.0
+  Aglo = 2000.0
+  τloc = 50E-3
+  τglo = 5E-3
+  S.PSConductanceInputInhibitionStabilization(v_rev_i,Aglo,Aloc,τglo,τloc,Ne)
+end
+
+##
+pop_e = S.Population(ps_e,
+  (S.FakeConnection(),ps_in),
+  (S.FakeConnection(),ps_istab),
+  (conn_e_e,ps_e))
 
 ## network 
 const dt = 0.1E-3
@@ -96,7 +128,7 @@ krec = 1
 n_e_rec = 3
 t_wup = 0.0
 rec_state_e = S.RecStateNow(ps_e,krec,dt,Ttot;idx_save=collect(1:n_e_rec),t_warmup=t_wup)
-rec_spikes_e = S.RecSpikes(ps_e,500.0,Ttot;idx_save=collect(1:n_e_rec),t_warmup=t_wup)
+rec_spikes_e = S.RecSpikes(ps_e,500.0,Ttot;idx_save=collect(1:Ne),t_warmup=t_wup)
 
 ## Run
 
@@ -104,7 +136,7 @@ times = (0:ntw.dt:Ttot)
 nt = length(times)
 # clean up
 S.reset!.([rec_state_e,rec_spikes_e])
-S.reset!.([ps_e,ps_in])
+S.reset!.([ps_e,ps_in,ps_istab])
 # initial conditions
 ps_e.state_now .= v_reset_e #rand(Uniform(v_reset_e,v_reset_e+0.3),Ne)
 
@@ -139,3 +171,16 @@ _ = let (_times,binned) =S.binned_spikecount(0.1,rec_spikes_e)
 end
 
 # order E neurons by assembly
+
+## 
+w_start = Matrix(wmat_start)
+w_end = Matrix(conn_e_e.weights)
+w_diff = w_end .- w_start
+
+##
+
+histogram(w_start[.! iszero.(w_start)])
+histogram(w_end[.! iszero.(w_end)])
+
+heatmap(w_end[idxs_sort,idxs_sort])
+heatmap(w_diff[idxs_sort,idxs_sort])

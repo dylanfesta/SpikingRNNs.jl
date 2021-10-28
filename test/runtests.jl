@@ -258,6 +258,20 @@ end
 end
 
 
+@testset "Exact spike time generation" begin
+  therate = 123.4
+  sgentest = S.SGPoisson(therate)
+
+  t_final = let t_current = 0.0
+    for i in 1:1_000
+      t_current=S._get_spiketime_update(t_current,sgentest,2)
+    end
+    t_current
+  end
+  ratenum = 1_000/t_final
+  @test(isapprox(ratenum,therate;atol=5.0))
+end
+
 #=
 @testset "single LIF neuron" begin
   dt = 5E-4
