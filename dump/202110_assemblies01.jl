@@ -22,36 +22,59 @@ const Ntot = Ne+Ni
 const Nas = 3
 const p_as = 0.20
 
-const Δt_as = 0.5
-const Ttot = 25.0
+const Δt_as = 0.2
+const Δt_blank = 0.1
+const t_as_delay = 0.3
+const Ttot = 4.0
 
 # input to all neurons
-const lowrate = 0.5E3
+const lowrate = 1E3
 # additional input to assembly neurons
-const highrate = 20E3
-const t_as_delay = 2.0
+const highrate = 3E3
 ##
 
 as_idxs = map(_->findall(rand(Ne) .< p_as),1:Nas)
 
 inputfun=S.pattern_functor(Δt_as,Ttot,lowrate,highrate,Ntot,
-  as_idxs;t_pattern_delay=t_as_delay,Δt_pattern_blank=1.5)
+  as_idxs;t_pattern_delay=t_as_delay,Δt_pattern_blank=Δt_blank)
 
 
 ## let's visualize it !
-_  = let times = range(-1,Ttot+10;length=500)
-  ys = hcat(inputfun.(times)...)
+_  = let times = range(-1,Ttot+3;length=500)
+  ys=Vector{Float64}[]
+  for t in times
+    y = inputfun.(t,1:Ne)
+    push!(ys,y)
+  end
+  ys = hcat(ys...)
   heatmap(times,1:Ntot,ys)
 end
 
 
 idxs_sort = S.order_by_pattern_idxs(as_idxs,Ne)
 
-_  = let times = range(-1,Ttot+10;length=500)
-  ys = hcat(inputfun.(times)...)
-  heatmap(times,1:Ntot,ys[idxs_sort,:])
+_  = let times = range(-1,Ttot+3;length=500)
+  ys=Vector{Float64}[]
+  for t in times
+    y = inputfun.(t,1:Ne)
+    push!(ys,y)
+  end
+  ys = hcat(ys...)[idxs_sort,:]
+  heatmap(times,1:Ntot,ys)
 end
 
+# we also need the upper limit 
+inputfun_upper = S.pattern_functor_upperlimit(lowrate,highrate,Ne,as_idxs)
+
+_  = let times = range(-1,Ttot+10;length=500)
+  ys=Vector{Float64}[]
+  for t in times
+    y = inputfun_upper.(t,1:Ne)
+    push!(ys,y)
+  end
+  ys = hcat(ys...)[idxs_sort,:]
+  heatmap(times,1:Ntot,ys;title="upper limit for all times")
+end
 
 ##
 # let's say kernel and v_reversal are same as E population 
@@ -66,7 +89,7 @@ const v_rev_e = 0.0
 const vth_e = 20.0
 const v_reset_e = -60.0
 const v_rest_e = -60.0
-const τrefr  = 20E-3
+const τrefr  = 5E-3
 nt_e = let sker = S.SKExpDiff(taueplus,taueminus)
   sgen = S.SpikeGenEIF(vthexp,eifslope)
   S.NTLIFConductance(sker,sgen,τe,Cap,
@@ -75,12 +98,12 @@ end
 ps_e = S.PSLIFConductance(nt_e,Ne)
 
 
-const w_in = 1.50
+const w_in = 3.0
 nt_in = let sker = S.SKExpDiff(taueplus,taueminus)
-  sgen = S.SGPoissonMultiF(inputfun)
+  sgen = S.SGPoissonFExact(inputfun,inputfun_upper)
   S.NTInputConductance(sgen,sker,v_rev_e) 
 end
-ps_in = S.PSInputPoissonConductance(nt_in,w_in,Ntot)
+ps_in = S.PSInputPoissonConductanceExact(nt_in,w_in,Ntot)
 
 ##
 
@@ -92,10 +115,10 @@ ntw = S.RecurrentNetwork(dt,pop_e)
 
 # record spiketimes and internal potential
 krec = 1
-n_e_rec = 3
+n_e_rec = Ne
 t_wup = 0.0
 rec_state_e = S.RecStateNow(ps_e,krec,dt,Ttot;idx_save=collect(1:n_e_rec),t_warmup=t_wup)
-rec_spikes_e = S.RecSpikes(ps_e,500.0,Ttot;idx_save=collect(1:n_e_rec),t_warmup=t_wup)
+rec_spikes_e = S.RecSpikes(ps_e,500.0,Ttot;idx_save=collect(1:Ne),t_warmup=t_wup)
 
 ## Run
 
@@ -121,7 +144,9 @@ S.add_fake_spikes!(1.0vth_e,rec_state_e,rec_spikes_e)
 
 _ = let neu = 1,
   plt=plot()
-  plot!(plt,rec_state_e.times,rec_state_e.state_now[neu,:];linewidth=2,leg=false)
+  plot!(plt,rec_state_e.times,rec_state_e.state_now[neu,:];
+    linewidth=2,leg=false,
+    xlims=(0,Ttot))
 end
 
 ##
@@ -133,8 +158,6 @@ _ = let Traster = Ttot
 end
 
 ##
-_ = let (_times,binned) =S.binned_spikecount(0.1,rec_spikes_e)
+_ = let (_times,binned) =S.binned_spikecount(0.01,rec_spikes_e)
   heatmap(_times,1:size(binned,1),binned[idxs_sort,:])
 end
-
-# order E neurons by assembly

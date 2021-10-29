@@ -18,33 +18,34 @@ const Ntot = Ne+Ni
 const Nas = 5
 const p_as = 0.2
 
-const Δt_as = 0.5
-const Ttot = 15.0
+const Δt_as = 0.2
+const Δt_blank = 0.1
+const t_as_delay = 0.3
+
+const Ttot = 20.0
 
 # input to all neurons
-const lowrate = 10.0
+const lowrate = 1E3
 # additional input to assembly neurons
-const highrate = 200.0
-const t_as_delay = 2.0
+const highrate = 5E3
 ##
 
 as_idxs = map(_->findall(rand(Ne) .< p_as),1:Nas)
 
 inputfun=S.pattern_functor(Δt_as,Ttot,lowrate,highrate,Ntot,
-  as_idxs;t_pattern_delay=t_as_delay)
-
+  as_idxs;t_pattern_delay=t_as_delay,Δt_pattern_blank=Δt_blank)
+inputfun_upper = S.pattern_functor_upperlimit(lowrate,highrate,Ntot,as_idxs)  
 
 ## let's visualize it !
-_  = let times = range(-1,Ttot+10;length=500)
-  ys = hcat(inputfun.(times)...)
+_  = let times = range(-1,Ttot+3;length=500)
+  ys = hcat([inputfun.(t,1:Ne) for t in times]...)
   heatmap(times,1:Ntot,ys)
 end
 
-
 idxs_sort = S.order_by_pattern_idxs(as_idxs,Ne)
 
-_  = let times = range(-1,Ttot+10;length=500)
-  ys = hcat(inputfun.(times)...)
+_  = let times = range(-1,Ttot+3;length=500)
+  ys = hcat([inputfun.(t,1:Ne) for t in times]...)
   heatmap(times,1:Ntot,ys[idxs_sort,:])
 end
 
@@ -71,12 +72,12 @@ end
 ps_e = S.PSLIFConductance(nt_e,Ne)
 
 
-const w_in = 100.0
+const w_in = 3.0
 nt_in = let sker = S.SKExpDiff(taueplus,taueminus)
-  sgen = S.SGPoissonMultiF(inputfun)
+  sgen = S.SGPoissonFExact(inputfun,inputfun_upper)
   S.NTInputConductance(sgen,sker,v_rev_e) 
 end
-ps_in = S.PSInputPoissonConductance(nt_in,w_in,Ntot)
+ps_in = S.PSInputPoissonConductanceExact(nt_in,w_in,Ntot)
 
 ## now define E to E connections
 # with triplets plasticity rule!
@@ -173,14 +174,16 @@ end
 # order E neurons by assembly
 
 ## 
-w_start = Matrix(wmat_start)
-w_end = Matrix(conn_e_e.weights)
+w_start = copy(wmat_start)
+w_end = copy(conn_e_e.weights)
 w_diff = w_end .- w_start
 
 ##
+histogram(nonzeros(w_start))
+histogram(nonzeros(w_end))
+histogram(nonzeros(w_diff))
 
-histogram(w_start[.! iszero.(w_start)])
-histogram(w_end[.! iszero.(w_end)])
+heatmap(Matrix(w_end)[idxs_sort,idxs_sort])
+heatmap(Matrix(w_end)[idxs_sort,idxs_sort])
 
-heatmap(w_end[idxs_sort,idxs_sort])
-heatmap(w_diff[idxs_sort,idxs_sort])
+heatmap(Matrix(w_end))

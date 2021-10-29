@@ -241,10 +241,10 @@ function _make_pattern_function(pattern_sequence::Vector{<:Integer},
     it = searchsortedfirst(pattern_times,t)-1
     if checkbounds(Bool,pattern_sequence,it)
       idxpatt = pattern_sequence[it]
+      return full_patterns[i,idxpatt]
     else
-      idxpatt = Npatt+1
+      return full_patterns[i,end]
     end
-    return full_patterns[idxpatt,i]
   end 
 end
 
@@ -272,22 +272,22 @@ function pattern_functor(Δt::R,Ttot::R,
     patttimes = ts_pattern_start
   end
   # Generate full scale patterns
-  fullp = fill(low,(npost,1:(Npatt+1)))
+  fullp = fill(low,(npost,Npatt+1))
   for (i,neuidxs) in enumerate(idxs_patternpop)
-    fullp[i,neuidxs] .= high
+    fullp[neuidxs,i] .= high
   end
   # generate the function and return it
   return _make_pattern_function(patt_seq,patttimes,fullp)
 end
 function pattern_functor_upperlimit(low::R,high::R,
+    Ntot::Integer,
     idxs_patternpop::Vector{Vector{Int64}}) where R
-  alpatts = unique(vcat(idxs_patternpop...))
+  theref = fill(low,Ntot)
+  for idxs_patt in idxs_patternpop
+    theref[idxs_patt] .= high
+  end
   return function(::Real,i::Integer)
-    if i in alpatts
-      return high
-    else
-      return low
-    end
+    return theref[i]
   end
 end
 
