@@ -3,7 +3,6 @@ Simplest case : input only.
 No recurrence or inhibition here
 =#
 
-
 push!(LOAD_PATH, abspath(@__DIR__,".."))
 
 using LinearAlgebra,Statistics,StatsBase
@@ -27,9 +26,9 @@ const Δt_as = 0.5
 const Ttot = 25.0
 
 # input to all neurons
-const lowrate = 5.0
+const lowrate = 0.5E3
 # additional input to assembly neurons
-const highrate = 50.0
+const highrate = 20E3
 const t_as_delay = 2.0
 ##
 
@@ -76,7 +75,7 @@ end
 ps_e = S.PSLIFConductance(nt_e,Ne)
 
 
-const w_in = 150.0
+const w_in = 1.50
 nt_in = let sker = S.SKExpDiff(taueplus,taueminus)
   sgen = S.SGPoissonMultiF(inputfun)
   S.NTInputConductance(sgen,sker,v_rev_e) 

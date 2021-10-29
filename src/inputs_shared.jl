@@ -287,6 +287,7 @@ function pattern_functor_upperlimit(low::R,high::R,
       return high
     else
       return low
+    end
   end
 end
 
