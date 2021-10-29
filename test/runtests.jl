@@ -272,6 +272,110 @@ end
   @test(isapprox(ratenum,therate;atol=5.0))
 end
 
+@testset "Inputs faster than Euler Δt" begin
+  # first test , Poissoin fixed input, faster than Euler dt
+  # I expect that doubling the rate will double the firing
+  # careful:
+  # this would not work with an exponential spike generation kernel
+
+  dt = 0.1E-3
+  myτe = 20E-3 # seconds
+  τrefr= 0.1E-3 # refractoriness
+  vth_e = -20.0   # mV
+  Cap = 300.0 #capacitance mF
+  v_rest_e = -60.0
+  v_rev_e = 0.0
+  v_leak_e = v_rest_e
+  v_reset_e = v_rest_e
+
+  # synaptic kernel
+  taueplus = 6E-3 #e synapse decay time
+  taueminus = 1E-3 #e synapse rise time
+
+
+  Ne = 200
+  # if spike genrator kernel is absent, then inputs scale linearly
+  nt_e = let sker = S.SKExpDiff(taueplus,taueminus)
+    sgen = S.SpikeGenNone()
+    S.NTLIFConductance(sker,sgen,myτe,Cap,
+      vth_e,v_reset_e,v_rest_e,τrefr,v_rev_e)
+  end
+  ps_e = S.PSLIFConductance(nt_e,Ne)
+
+
+  nt_in = let in_rate = 10E3
+    sker = S.SKExpDiff(taueplus,taueminus)
+    sgen = S.SGPoisson(in_rate)
+    S.NTInputConductance(sgen,sker,v_rev_e) 
+  end
+  in_weight = 7.0
+  ps_in = S.PSInputPoissonConductanceExact(nt_in,in_weight,Ne)
+
+  pop_e = S.Population(ps_e,(S.FakeConnection(),ps_in))
+  ntw = S.RecurrentNetwork(dt,pop_e)
+
+  Ttot = 2.0
+  # record spiketimes and internal potential
+  n_e_rec = Ne
+  t_wup = 0.0
+  rec_spikes_e = S.RecSpikes(ps_e,500.0,Ttot;idx_save=collect(1:n_e_rec),t_warmup=t_wup)
+
+  times = (0:ntw.dt:Ttot)
+  nt = length(times)
+  S.reset!.([ps_e,ps_in,rec_spikes_e])
+  # initial conditions
+  ps_e.state_now .= v_reset_e
+  for (k,t) in enumerate(times)
+    rec_spikes_e(t,k,ntw)
+    S.dynamics_step!(t,ntw)
+  end
+# _ = let plt=plot(),ts=rec_state_e.times,
+#   neu = 1 , vs = rec_state_e.state_now[neu,:]
+#   plot!(plt,ts,vs;leg=false,linewidth=2)
+# end
+  rates_e = let rdic=S.get_mean_rates(rec_spikes_e,dt,Ttot)
+    ret = fill(0.0,n_e_rec)
+    for (k,v) in pairs(rdic)
+      ret[k] = v
+    end
+    ret
+  end
+  rates_input1 = mean(rates_e)
+
+  # now double the input rate, see if output doubles too
+
+  nt_in = let in_rate = 2*10E3
+    sker = S.SKExpDiff(taueplus,taueminus)
+    sgen = S.SGPoisson(in_rate)
+    S.NTInputConductance(sgen,sker,v_rev_e) 
+  end
+  ps_in = S.PSInputPoissonConductanceExact(nt_in,in_weight,Ne)
+  pop_e = S.Population(ps_e,(S.FakeConnection(),ps_in))
+  ntw = S.RecurrentNetwork(dt,pop_e)
+
+  rec_spikes_e = S.RecSpikes(ps_e,500.0,Ttot;idx_save=collect(1:n_e_rec),t_warmup=t_wup)
+
+  S.reset!.([ps_e,ps_in,rec_spikes_e])
+  # initial conditions
+  ps_e.state_now .= v_reset_e
+
+  for (k,t) in enumerate(times)
+    rec_spikes_e(t,k,ntw)
+    S.dynamics_step!(t,ntw)
+  end
+
+  rates_e = let rdic=S.get_mean_rates(rec_spikes_e,dt,Ttot)
+    ret = fill(0.0,n_e_rec)
+    for (k,v) in pairs(rdic)
+      ret[k] = v
+    end
+    ret
+  end
+  rates_input2 = mean(rates_e)
+  @test isapprox(2*rates_input1,rates_input2;rtol=0.2)
+end
+
+
 #=
 @testset "single LIF neuron" begin
   dt = 5E-4

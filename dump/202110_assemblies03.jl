@@ -1,4 +1,9 @@
-# push!(LOAD_PATH, abspath(@__DIR__,".."))
+#=
+
+This is just a simple test for the new input type
+
+I excite a subgroup of E neurons for specific intervals.
+=#
 
 using LinearAlgebra,Statistics,StatsBase,Distributions
 using Plots,NamedColors ; theme(:dark) #; plotlyjs();

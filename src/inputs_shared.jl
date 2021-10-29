@@ -216,7 +216,8 @@ function local_update!(t_now::Float64,dt::Float64,ps::PSInputPoissonFtMulti)
   return nothing
 end
 
-## training with patterns with no consecutive repetitions
+# helper function for
+# training with patterns with no consecutive repetitions
 function _generate_uniform_pattern_sequence(Npatterns::Integer,Ntrials::Integer)
   nreps = ceil(Integer,Ntrials/Npatterns)
   last_patt = 0
@@ -233,19 +234,18 @@ function _generate_uniform_pattern_sequence(Npatterns::Integer,Ntrials::Integer)
   return patt_seq
 end
 
-# primitive for low-level tuning
+# Define separate primitive for low-level tuning
 function _make_pattern_function(pattern_sequence::Vector{<:Integer},
-    pattern_times::Vector{R},full_patterns::Vector{Vector{R}}) where R
-  retfun = function (t::R)
+    pattern_times::Vector{R},full_patterns::Matrix{R}) where R
+  return function (t::R,i::Integer)
     it = searchsortedfirst(pattern_times,t)-1
     if checkbounds(Bool,pattern_sequence,it)
-      idx = pattern_sequence[it]
+      idxpatt = pattern_sequence[it]
     else
-      idx = Npatt+1
+      idxpatt = Npatt+1
     end
-    return full_patterns[idx]
+    return full_patterns[idxpatt,i]
   end 
-  return retfun
 end
 
 # but is it a functor ?
@@ -272,14 +272,23 @@ function pattern_functor(Δt::R,Ttot::R,
     patttimes = ts_pattern_start
   end
   # Generate full scale patterns
-  fullp = map(_->fill(low,npost), 1:(Npatt+1))
-  for (i,pattidxs) in enumerate(idxs_patternpop)
-    fullp[i][pattidxs] .= high
+  fullp = fill(low,(npost,1:(Npatt+1)))
+  for (i,neuidxs) in enumerate(idxs_patternpop)
+    fullp[i,neuidxs] .= high
   end
   # generate the function and return it
   return _make_pattern_function(patt_seq,patttimes,fullp)
 end
-
+function pattern_functor_upperlimit(low::R,high::R,
+    idxs_patternpop::Vector{Vector{Int64}}) where R
+  alpatts = unique(vcat(idxs_patternpop...))
+  return function(::Real,i::Integer)
+    if i in alpatts
+      return high
+    else
+      return low
+  end
+end
 
 
 ## generalize a little on the Inputs
@@ -481,9 +490,9 @@ function _rand_by_thinning(t_start::Real,get_rate::Function,get_rate_upper::Func
   t = t_start 
   while (t-t_start)<Tmax # Tmax is upper limit, if rate too low 
     rup = get_rate_upper(t)
-    Δt = rand(Exponential(inv(rup)))
+    Δt = rand(Exponential())./rup
     t = t+Δt
-    u = rand(Uniform(0,rup))
+    u = rand(Uniform(0.0,rup))
     if u <= get_rate(t) 
       return t
     end
@@ -542,9 +551,8 @@ function _get_spiketime_update(::Real,sg::SGPoissonMultiF,i::Integer)
 end
 
 function _get_spiketime_update(t_current_spike::Real,sg::SGPoissonFExact,i::Integer)
-  Δt = _rand_by_thinning(t_current_spike,
-    t->sg.ratefunction(t,i),t->sg.ratefunctionupper(t,i))
-  return t_current_spike + Δt
+  return _rand_by_thinning(t_current_spike,
+    t->sg.ratefunction(t,i),t->sg.ratefunction_upper(t,i))
 end
 
 # in this case reset is an initialization step... 
@@ -575,6 +583,7 @@ function forward_signal!(t_now::Real,dt::Real,
   preneu = pspre.neurontype
   pre_v_reversal = preneu.v_reversal
   pre_synker = preneu.synaptic_kernel
+  sgen = pspre.neurontype.spikegenerator
   # traces time decay (here or at the end? meh)
   trace_decay!(dt,pspre)
   # this is an alternative to the code below 
@@ -590,17 +599,17 @@ function forward_signal!(t_now::Real,dt::Real,
   #   end
   #   idxs_past = findall(t_now .>= pspre.spiketimes)
   # end
-  for i in 1:n
-    tspike = pspre.spiketimes[i]
+  for i in eachindex(pspre.firingtimes)
+    tspike = pspre.firingtimes[i]
     weight_i =  pspre.input_weights[i]
     while t_now >= tspike
       # increment traces of spiking neurons
       # function defined in lif_conductance.jl
       trace_spike_update!(weight_i,pspre.trace1,pspre.trace2,pre_synker,i)
       # update spiketime
-      tspike = _get_spiketime_update(t_spike,sgen,i)
+      tspike = _get_spiketime_update(tspike,sgen,i)
     end
-    pspre.spiketimes[i]=tspike
+    pspre.firingtimes[i]=tspike
   end
   @inbounds @simd for i in eachindex(pspost.input)
     if ! pspost.isrefractory[i]

@@ -159,7 +159,31 @@ end
 
 # adds a pulse at time of spiking
 # voltage_traces : rows are neurons, columns are timesteps
-function add_fake_spikes!(v_spike::R,voltage_times::Vector{R},
+function add_fake_spikes!(v_spike::R,
+    voltage_times::Vector{R},
+    voltage_traces::Matrix{R},
+    spiketimes::Vector{R},
+    spikeneurons::Vector{I},
+    idx_save::Vector{I}) where {R,I}
+  nneus,nvtimes = size(voltage_traces)
+  if isempty(idx_save)
+    idx_save = collect(1:nneus)
+  end
+  for i in 1:nneus
+    idx_neu = idx_save[i]
+    idx_tspike = findall(==(idx_neu),spikeneurons)
+    for k in idx_tspike
+      tspike = spiketimes[k]
+      idx_vtime = searchsortedfirst(voltage_times,tspike)
+      if idx_vtime <= nvtimes
+        voltage_traces[i,idx_vtime] = v_spike
+      end
+    end
+  end
+  return nothing
+end
+
+function add_fake_spikes_old!(v_spike::R,voltage_times::Vector{R},
     voltage_traces::Matrix{R},
     spiketimes::Vector{R},
     spikeneurons::Vector{I},
@@ -182,6 +206,8 @@ function add_fake_spikes!(v_spike::R,voltage_times::Vector{R},
   end
   return nothing
 end
+
+
 
 function add_fake_spikes!(v_spike::Float64,rtrace::RecStateNow,rspk::RecSpikes)
   return add_fake_spikes!(v_spike,rtrace.times,rtrace.state_now,
