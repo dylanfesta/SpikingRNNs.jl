@@ -117,31 +117,32 @@ function plasticity_update!(t_now::Real,dt::Real,
   for j_pre in idx_pre_spike
 		_posts_nz = nzrange(conn.weights,j_pre) # indexes of corresponding pre in nz space
 		@inbounds for _pnz in _posts_nz
-      ipost = row_idxs[_pnz]
-      Δw = plast.o1[ipost]*(plast.A2minus+plast.A3minus*plast.r2[j_pre])
+      i_post = row_idxs[_pnz]
+      Δw = plast.o1[i_post]*(plast.A2minus+plast.A3minus*plast.r2[j_pre])
       weightsnz[_pnz] = max(0.0,weightsnz[_pnz]-Δw)
     end
   end
   # postsynaptic spike: go along w row
-  if !isempty(idx_post_spike)
-    # innefficient ... need to search i element for each column
-    for i_post in idx_post_spike
-      for j_pre in (1:size(conn.weights,2))
-        _pnz = searchsortedfirst(row_idxs,i_post,
-            _colptr[j_pre],_colptr[j_pre+1]-1,Base.Order.Forward)
-        if _pnz != _colptr[j_pre+1]  # update only if row i is present in row_idxs slice
-          weightsnz[_pnz]+=plast.r1[j_pre]*(plast.A2plus+plast.A3plus*plast.o2[i_post])
-        end
+  # innefficient ... need to search i element for each column
+  for i_post in idx_post_spike
+    for j_pre in (1:pspre.n)
+      _pnz = collect(searchsorted(row_idxs,i_post,
+          _colptr[j_pre],_colptr[j_pre+1]-1,Base.Order.Forward))
+      if !isempty(_pnz) 
+        Δw = plast.r1[j_pre]*(plast.A2plus+plast.A3plus*plast.o2[i_post])
+        weightsnz[_pnz[1]]+= Δw
       end
     end
+    println()
   end
-  # update the plasticity trace variables
+  # update the plasticity traces 2
   for j_pre in idx_pre_spike
     plast.r1[j_pre]+=1.0 ; plast.r2[j_pre]+=1.0
   end
   for i_post in idx_post_spike
     plast.o1[i_post]+=1.0 ; plast.o2[i_post]+=1.0
   end
+  # and timestep
   @. plast.r1 -= plast.r1*dt/plast.τplus
   @. plast.r2 -= plast.r2*dt/plast.τx
   @. plast.o1 -= plast.o1*dt/plast.τminus
@@ -192,11 +193,11 @@ function plasticity_update!(t_now::Real,dt::Real,
     # innefficient ... need to search i element for each column
     for j_pre in (1:size(conn.weights,2))
       for i_post in idx_post_spike
-        _pnz = searchsortedfirst(row_idxs,i_post,
-            _colptr[j_pre],_colptr[j_pre+1]-1,Base.Order.Forward)
-        if _pnz != _colptr[j_pre+1]  # update only if row i is present in row_idxs slice
+        _pnz = collect(searchsorted(row_idxs,i_post,
+            _colptr[j_pre],_colptr[j_pre+1]-1,Base.Order.Forward))
+        if !isempty(_pnz)
           Δw = plast.η*plast.r[j_pre]
-          weightsnz[_pnz] = min(0.0,weightsnz[_pnz]+Δw)
+          weightsnz[_pnz[1]] = min(0.0,weightsnz[_pnz]+Δw)
         end
       end
     end

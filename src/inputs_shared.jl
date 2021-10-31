@@ -2,14 +2,11 @@
 ##############
 # Inputs 
 
-
-
 # Constant input current (mostly for testing purposes)
 # the scaling is regulated here, and the weight is ignored
 struct InputSimpleOffset <: NeuronType
   α::Float64 # scaling constant
 end
-
 
 # when the presynaptic is a simple input, just sum linearly to the input vector
 function forward_signal!(tnow::Real,dt::Real,p_post::PopulationState,
@@ -436,16 +433,26 @@ function reset!(ps::PSInputPoissonConductance{NT}) where {SK,SG,NT<:NTInputCondu
   fill!(ps.trace1,0.0)
   fill!(ps.trace2,0.0)
   fill!(ps.isfiring,false)
+  # special treatment for train inputs
+  if hasproperty(ps.neurontype.spikegenerator,:counter)
+    fill!(ps.neurontype.spikegenerator.counter,1)
+  end
   return nothing
 end
-# special treatment for train inputs
-function reset!(ps::PSInputPoissonConductance{NT}) where {SK,NT<:NTInputConductance{SK,SGTrains}}
-  fill!(ps.trace1,0.0)
-  fill!(ps.trace2,0.0)
-  fill!(ps.isfiring,false)
-  fill!(ps.neurontype.spikegenerator.counter,1)
+function reset_input!(::PSInputPoissonConductance)
+  error(""" 
+  If you are modeling a neural population explicitly, please
+  use PSInputConductance instead of PSInputPoissonConductance
+  to define it.
+    """)
   return nothing
 end
+# function reset!(ps::PSInputPoissonConductance{NT}) where {SK,NT<:NTInputConductance{SK,SGTrains}}
+#   fill!(ps.trace1,0.0)
+#   fill!(ps.trace2,0.0)
+#   fill!(ps.isfiring,false)
+#   return nothing
+# end
 
 @inline function trace_decay!(dt::Real,ps::PSInputPoissonConductance)
   trace_decay!(dt,ps.trace1,ps.trace2,ps.neurontype.synaptic_kernel)

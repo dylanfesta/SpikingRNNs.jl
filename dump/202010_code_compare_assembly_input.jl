@@ -2,7 +2,7 @@
 Here I show the exact correspondence
 my spiking implementation and code by
 Litwin-Kumar / Auguste Schulz
-Compare rates without assembly inout and without plasticity, first
+Compare rates without assembly input and without plasticity, first
 =#
 
 

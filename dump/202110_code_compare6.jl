@@ -1,6 +1,6 @@
 #=
 Here I show the exact correspondence
-my spiking implementation and code by
+between my spiking implementation and code by
 Litwin-Kumar / Auguste Schulz
 For one large random network
 =#
