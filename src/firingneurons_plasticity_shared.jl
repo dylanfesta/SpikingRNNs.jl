@@ -133,7 +133,6 @@ function plasticity_update!(t_now::Real,dt::Real,
         weightsnz[_pnz[1]]+= Δw
       end
     end
-    println()
   end
   # update the plasticity traces 2
   for j_pre in idx_pre_spike

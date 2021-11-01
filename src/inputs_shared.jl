@@ -594,30 +594,23 @@ function forward_signal!(t_now::Real,dt::Real,
   sgen = pspre.neurontype.spikegenerator
   # traces time decay (here or at the end? meh)
   trace_decay!(dt,pspre)
-  # this is an alternative to the code below 
-  # # if t_now moved past a spiketime...
-  # idxs_past = findall(t_now .>= pspre.spiketimes)
-  # while !isempty(idxs_past)
-  #   for i in idxs_past
-  #     # increment traces of spiking neurons
-  #     # function defined in lif_conductance.jl
-  #     trace_spike_update!(pspre.input_weights[i],pspre.trace1,pspre.trace2,pre_synker,i)
-  #     # update spiketime
-  #     pspre.spiketimes[i] = _get_spiketime_update(t_spike,sgen,i)
-  #   end
-  #   idxs_past = findall(t_now .>= pspre.spiketimes)
-  # end
-  for i in eachindex(pspre.firingtimes)
+  # if t_now moved past a spiketime...
+  @inbounds for i in eachindex(pspre.firingtimes)
     tspike = pspre.firingtimes[i]
-    weight_i =  pspre.input_weights[i]
-    while t_now >= tspike
-      # increment traces of spiking neurons
-      # function defined in lif_conductance.jl
-      trace_spike_update!(weight_i,pspre.trace1,pspre.trace2,pre_synker,i)
-      # update spiketime
+    _n_spikes = 0
+    # count spike occurrences
+    while tspike <= t_now
+      _n_spikes += 1
       tspike = _get_spiketime_update(tspike,sgen,i)
     end
-    pspre.firingtimes[i]=tspike
+    # increment traces of spiking neurons
+    # ASSUMING IT IS LINEAR
+    if _n_spikes > 0
+    # function defined in lif_conductance.jl
+      trace_spike_update!(_n_spikes*pspre.input_weights[i],
+          pspre.trace1,pspre.trace2,pre_synker,i)
+      pspre.firingtimes[i]=tspike
+    end
   end
   @inbounds @simd for i in eachindex(pspost.input)
     if ! pspost.isrefractory[i]

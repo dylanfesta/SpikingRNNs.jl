@@ -303,10 +303,7 @@ function raster_png(sd::SpontaneousData,session_id::String;
 end
 =#
 
-
-
-
-# recond weights
+# record weights
 
 struct RecWeights
   weights::SparseMatrixCSC{Float64,Int64}
@@ -376,4 +373,53 @@ function rebuild_weights(rec::RecWeights)
   return times,wout
 end
 
-# TO-DO  ... RecWeighmatrix , where I just copy it as sparse matrix
+# records the full weight matrix
+# this makes life much easier where there is structural plasticity.
+# BUT please use it with a large k (e.g. 2 Hz )
+
+struct RecWeightsFull
+  weights::SparseMatrixCSC{Float64,Int64}
+  isdone::Ref{Bool}
+  krec::Int64 # record every k timesteps
+  nrecords::Int64 # max recorded steps
+  k_warmup::Int64 # starts to record only after this 
+  times::Vector{Float64}
+  weights_now::Matrix{Float64}
+  function RecWeightsFull(conn::Connection,
+      everyk::Integer,dt::Float64,Tmax::Float64; 
+      t_warmup::Float64=0.0)
+    if iszero(n_plasticity_rules(conn))
+      @warn "The connection has no plasticity, there is no need of tracking it!"
+    end
+    k_warmup = floor(Int64,t_warmup/dt)
+    nrecs = floor(Int64,(Tmax-t_warmup)/(everyk*dt))
+    times = fill(NaN,nrecs)
+    weights_now = Vector{SparseMatrixCSC{Float64,Int64}}(undef,nrecs)
+    return new(conn.weights,Ref(false),everyk,nrecs,k_warmup,times,weights_now)
+  end
+end
+
+Base.length(rec::RecWeightsFull) = length(rec.times)
+
+function reset!(rec::RecWeightsFull)
+  fill!(rec.times,NaN)
+  fill!(rec.weights_now,NaN)
+  rec.isdone[]=false
+  return nothing
+end
+
+function (rec::RecWeightsFull)(t::Float64,k::Integer,::AbstractNetwork)
+  # I assume k starts from 1, which corresponds to t=0
+  kless,_rem=divrem((k-1-rec.k_warmup),rec.krec)
+  kless += 1 # vector index must start from 1
+  if (_rem != 0) || kless<=0 || rec.isdone[]
+    return nothing
+  end
+  if kless > rec.nrecords 
+    rec.isdone[]=true
+    return nothing
+  end
+  rec.weights_now[:,kless] .= copy(rec.weights)
+  rec.times[kless] = t
+  return nothing
+end

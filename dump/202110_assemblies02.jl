@@ -1,6 +1,4 @@
-
-push!(LOAD_PATH, abspath(@__DIR__,".."))
-
+# push!(LOAD_PATH, abspath(@__DIR__,".."))
 using LinearAlgebra,Statistics,StatsBase
 using Plots,NamedColors ; theme(:dark)
 using ProgressMeter
@@ -15,14 +13,14 @@ const Ne = 500
 const Ni = 0
 const Ntot = Ne+Ni
 
-const Nas = 5
+const Nas = 3
 const p_as = 0.2
 
 const Δt_as = 0.2
 const Δt_blank = 0.1
 const t_as_delay = 0.3
 
-const Ttot = 20.0
+const Ttot = 10.0
 
 # input to all neurons
 const lowrate = 1E3
@@ -63,7 +61,7 @@ const v_rev_e = 0.0
 const vth_e = 20.0
 const v_reset_e = -60.0
 const v_rest_e = -60.0
-const τrefr  = 10E-3
+const τrefr  = 2E-3
 nt_e = let sker = S.SKExpDiff(taueplus,taueminus)
   sgen = S.SpikeGenEIF(vthexp,eifslope)
   S.NTLIFConductance(sker,sgen,τe,Cap,
@@ -86,20 +84,20 @@ const pee = 0.2
 wmat_start = S.sparse_constant_wmat(Ne,Ne,pee,jee;no_autapses=true)
 # now the plasticity
 # parameters from Augiste's code
-triplets_plasticity = let τplus = 20E-3,
-  τplus = 25E-3 # 16.8 
-  τminus = 33E-3 # 33.7
+triplets_plasticity = let (n_post,n_pre) = size(wmat_start),
+  τplus = 17E-3 # 16.8 
+  τminus = 34E-3 # 33.7
   τx = 100E-3 # 101
   τy = 120E-3 # 125
-  plast_eps = 5E-5
-  A2plus = 0.075*plast_eps
+  plast_eps = 5E-5 # 1E-3
+  A2plus = 7.5E-7*plast_eps
   A3plus = 9.3*plast_eps
   A2minus = 7.0*plast_eps
-  A3minus = 0.2*plast_eps
-  (n_post,n_pre) = size(wmat_start)
+  A3minus = 2.3E-1*plast_eps
   S.PlasticityTriplets(τplus,τminus,τx,τy,A2plus,A3plus,
     A2minus,A3minus,n_post,n_pre)
 end
+
 
 conn_e_e = S.ConnGeneralIF2(copy(wmat_start),triplets_plasticity)
 
@@ -107,10 +105,10 @@ conn_e_e = S.ConnGeneralIF2(copy(wmat_start),triplets_plasticity)
 ## Now add stabilization to E neurons 
 
 ps_istab = let v_rev_i = v_reset_e
-  Aloc = 800.0
-  Aglo = 2000.0
+  Aloc = 100.0 # 500
+  Aglo = 3000.0 # 2000
   τloc = 50E-3
-  τglo = 5E-3
+  τglo = 8E-3
   S.PSConductanceInputInhibitionStabilization(v_rev_i,Aglo,Aloc,τglo,τloc,Ne)
 end
 
@@ -159,7 +157,7 @@ _ = let neu = 1,
 end
 
 ##
-idxs_sort = S.order_by_pattern_idxs(as_idxs,Ne)
+idxs_sort = S.order_by_pattern_idxs(as_idxs,Ne) |> reverse
 _ = let Traster = Ttot
   tmp = S.raster_png(1E-3,rec_spikes_e;spike_height=3,Ttot=Traster,Nneurons=Ne,
    reorder=idxs_sort)
@@ -184,6 +182,27 @@ histogram(nonzeros(w_end))
 histogram(nonzeros(w_diff))
 
 heatmap(Matrix(w_end)[idxs_sort,idxs_sort])
-heatmap(Matrix(w_end)[idxs_sort,idxs_sort])
+heatmap(Matrix(w_diff)[idxs_sort,idxs_sort])
 
-heatmap(Matrix(w_end))
+
+function plus_minus_rescale(mat::Array{R}) where R
+  down,up = extrema(mat)
+  @assert (down < 0.0) && (up > 0.0)
+  pluspart = mat ./ up
+  minuspart = mat ./ abs(down)
+  ret = similar(mat)
+  for i in eachindex(mat)
+    if mat[i] > 0
+      ret[i] = pluspart[i]
+    else
+      ret[i] = minuspart[i]
+    end
+  end
+  return ret
+end
+
+theme(:sand)
+heatmap(plus_minus_rescale(Matrix(w_diff))[idxs_sort,idxs_sort];
+  color=:seismic,ratio=1,ylabel="postsynapic",xlabel="presynaptic",
+  colorbar_title="normalized weight change",xlims=(0,Ne))
+savefig("/tmp/w.svg")  
