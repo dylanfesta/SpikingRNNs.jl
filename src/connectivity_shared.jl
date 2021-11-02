@@ -166,12 +166,5 @@ function order_by_pattern_idxs(pattern_idxs::Vector{Vector{Int64}},nneus::Int64)
     (length(pa) == 1) && return pa[1]
     (length(pa)>1) && return sample(pa)
   end
-  # _tosort = fill(high_number,nneus)
-  # for (p,pat_neus) in enumerate(pattern_idxs)
-  #   for neu in pat_neus
-  #     _tosort[neu] = min(_tosort[neu],p)
-  #   end
-  # end
-  return sortperm(_tosort)
+  return sortperm(_tosort;rev=true)
 end
-

@@ -583,9 +583,6 @@ assemblymembers = initassemblymembers(Nassemblies = Nass,Ne = Ne)
 # inhibitory tuning
 inhibassemblies = initinhibassemblymembers(Nassemblies = Nass, Ne = Ne, Ni = Ni)
 
-winit = copy(weights) # make a copy of initial weights as weights are updated by simulation
-
-
 # --------------------- store relevant initialisation parameters -------------------------------------------
 #=
 h5write(savefile, "initial/stimulus", stimulus)
@@ -648,7 +645,7 @@ function runsimulation_inhibtuning(ifiSTDP,ifwadapt,stimparams,stimulus::Array{F
 	storagetimes::Array{Int64,1}, savefile::String, lenpretrain,
 	inhibassemblies::Array{Int64,2}; dt = 0.1, T = 2000,
 	adjustfactor = 1, adjustfactorinhib=1, inhibtuing = true, inhibfactor = 0.1,
-	bwfactor=100, tauw_adapt=150)
+	bwfactor=100, tauw_adapt=150,v_start::Union{Nothing,Vector{Float64}}=nothing)
 
 """	Runs a new simulation of a plastic E-I spiking neural network model where both E and I
 	neurons receive tuned input
@@ -865,7 +862,8 @@ function runsimulation_inhibtuning(ifiSTDP,ifwadapt,stimparams,stimulus::Array{F
 
 		# initialisation of membrane potentials and poisson inputs
 		for cc = 1:Ncells
-			v[cc] = vreset + (vth0-vreset)*rand()
+      _v_init_rand = vreset + (vth0-vreset)*rand()
+			v[cc] = something(v_start[cc],_v_init_rand)
 			if cc <= Ne # excitatory neurons
 				rx[cc] = rex
 				nextx[cc] = rand(expdist)/rx[cc]
@@ -1240,7 +1238,7 @@ function runsimulation_inhibtuning(ifiSTDP,ifwadapt,stimparams,stimulus::Array{F
 
 					end #ltp
         #=
-				else # not triplet but voltage rule
+				else # REMOVED not triplet but voltage rule
 
 				#vstdp, ltd component
 					if spiked[cc] && (t > stdpdelay) && (cc < Ne)
@@ -1320,18 +1318,26 @@ end # function simulation
 
 ##
 
-weights_start = copy(weights)
+weights_start = permutedims(weights)
 
-myT = Int64(10E3)
+const Ttot = 8.0
+const Ttot_ms = Int64(Ttot*1E3)
+
+v_start = let vreset = -60.0 , vth0=-52.0
+  doone =()->vreset + (vth0-vreset)*rand()
+  [ doone() for i in 1:Ncells]
+end
 
 @time totalspikes = runsimulation_inhibtuning(ifiSTDP,ifwadapt,stimparams,stimulus, weights,
   assemblymembers, spiket, storagedec, storagetimes,savefile, lenpretrain, inhibassemblies,
   adjustfactor = adjustfactor, adjustfactorinhib = adjustfactorinhib,
-  inhibfactor = inhibfactor, T = myT )
+  inhibfactor = inhibfactor, T = Ttot_ms,v_start=v_start )
 
-totalrates = totalspikes ./ myT
+totalrates_au = totalspikes ./ Ttot
 
-weights_end = copy(weights)
+weights_end = permutedims(weights)
+
+#error("simulation done! STOPPP!")
 
 # ---------------------- store final params ---------------------------------------------------------
 #=
@@ -1346,7 +1352,7 @@ h5write(savefile, "postsim/totalspikes", totalspikes)
 
 # ---------------------- DO THINGS ---------------------------------------------------------
 
-function _rediff(a,b)
+function _reldiff(a,b)
   if a+b == 0.0
     return 0.0
   else
@@ -1356,7 +1362,7 @@ end
 
 _ = let ws = weights_start, wn=weights_end
   di = wn .- ws 
-  direl  = map(ww->_rediff(ww...),zip(wn,ws))
+  direl  = map(ww->_reldiff(ww...),zip(wn,ws))
   # extrema(we[1:Ne,1:Ne] .- ws[1:Ne,1:Ne])
   #@show extrema(di[Ne+1:end,1:Ne])
   # heatmap(di[Ne+1:end,1:Ne])
@@ -1364,8 +1370,8 @@ _ = let ws = weights_start, wn=weights_end
   heatmap(di)
 end
 
-bar(totalspikes)
-histogram(totalspikes)
+#bar(totalspikes)
+#histogram(totalspikes)
 
 ## ---------------------- BUILD EQUIVALENT NETWORK -----------------------------------------
 
@@ -1403,7 +1409,7 @@ histogram(totalspikes)
 
 
 # push!(LOAD_PATH, abspath(@__DIR__,".."))
-
+using ProgressMeter
 using SpikingRNNs; const global S = SpikingRNNs
 using SparseArrays
 
@@ -1416,14 +1422,12 @@ vthexp = -52.0 # actual threshold for spike-generation
 vth_i = vthexp
 eifslope = 2.0
 Cap = 300.0 #capacitance mF
-v_rest_e = -60.0
-v_rest_i = -60.0
+v_rest_e = -70.0
+v_rest_i = -62.0
 v_rev_e = 0.0
 v_rev_i = -75.0
-v_leak_e = v_rest_e
-v_leak_i = v_rest_i
-v_reset_e = v_rest_e
-v_reset_i = v_rest_i
+v_reset_e = -60.0
+v_reset_i = -60.0
 
 # synaptic kernel
 tauerise = 1E-3 #e synapse rise time
@@ -1436,7 +1440,7 @@ tauiplus,tauiminus = tauidecay,tauirise
 # input parameters
 
 in_rate_e = 4.5E3
-in_rate_i = 2.3044E3
+in_rate_i = 2.3044E3 # 2.5 with correction
 Jin_e = 1.78
 Jin_i = 1.27
 
@@ -1461,27 +1465,27 @@ nt_in_e = let sker = S.SKExpDiff(taueplus,taueminus)
   sgen = S.SGPoisson(in_rate_e)
   S.NTInputConductance(sgen,sker,v_rev_e) 
 end
-ps_in_e = S.PSInputPoissonConductance(nt_in_e,Jin_e,Ne)
+ps_in_e = S.PSInputPoissonConductanceExact(nt_in_e,Jin_e,Ne)
 
 nt_in_i = let sker = S.SKExpDiff(taueplus,taueminus)
   sgen = S.SGPoisson(in_rate_i)
   S.NTInputConductance(sgen,sker,v_rev_e) 
 end
-ps_in_i = S.PSInputPoissonConductance(nt_in_i,Jin_i,Ni)
+ps_in_i = S.PSInputPoissonConductanceExact(nt_in_i,Jin_i,Ni)
 
 
 
 ## connections 
-conn_ee = let w_ee = weights[1:Ne,1:Ne]
+conn_ee = let w_ee = weights_start[1:Ne,1:Ne]
   S.ConnGeneralIF2(sparse(w_ee))
 end
-conn_ii = let w_ii = weights[Ne+1:end,Ne+1:end]
+conn_ii = let w_ii = weights_start[Ne+1:end,Ne+1:end]
 S.ConnGeneralIF2(sparse(w_ii))
 end
-conn_ei = let w_ei = weights[1:Ne,Ne+1:end]
+conn_ei = let w_ei = weights_start[1:Ne,Ne+1:end]
   S.ConnGeneralIF2(sparse(w_ei))
 end
-conn_ie = let w_ie = weights[Ne+1:end,1:Ne]
+conn_ie = let w_ie = weights_start[Ne+1:end,1:Ne]
   S.ConnGeneralIF2(sparse(w_ie))
 end
 
@@ -1503,8 +1507,8 @@ n_i_rec = 1000
 t_wup = 0.0
 rec_state_e = S.RecStateNow(ps_e,krec,dt,Ttot;idx_save=collect(1:n_e_rec),t_warmup=t_wup)
 rec_state_i = S.RecStateNow(ps_i,krec,dt,Ttot;idx_save=collect(1:n_i_rec),t_warmup=t_wup)
-rec_spikes_e = S.RecSpikes(ps_e,5.0,Ttot;idx_save=collect(1:n_e_rec),t_warmup=t_wup)
-rec_spikes_i = S.RecSpikes(ps_i,5.0,Ttot;idx_save=collect(1:n_i_rec),t_warmup=t_wup)
+rec_spikes_e = S.RecSpikes(ps_e,5.0,Ttot;idx_save=collect(1:Ne),t_warmup=t_wup)
+rec_spikes_i = S.RecSpikes(ps_i,5.0,Ttot;idx_save=collect(1:Ni),t_warmup=t_wup)
 
 ## Run
 
@@ -1529,19 +1533,19 @@ ps_i.state_now .= v_start[Ne+1:end]
   end
 end
 
-#S.add_fake_spikes!(1.0vth_e,rec_state_e,rec_spikes_e)
-#S.add_fake_spikes!(0.0,rec_state_i,rec_spikes_i)
+S.add_fake_spikes!(1.0vth_e,rec_state_e,rec_spikes_e)
+S.add_fake_spikes!(0.0,rec_state_i,rec_spikes_i)
 ##
 
 rates_e = let rdic=S.get_mean_rates(rec_spikes_e,dt,Ttot)
-  ret = fill(0.0,n_i_rec)
+  ret = fill(0.0,Ne)
   for (k,v) in pairs(rdic)
     ret[k] = v
   end
   ret
 end
 rates_i = let rdic=S.get_mean_rates(rec_spikes_i,dt,Ttot)
-  ret = fill(0.0,n_i_rec)
+  ret = fill(0.0,Ni)
   for (k,v) in pairs(rdic)
     ret[k] = v
   end
@@ -1550,32 +1554,36 @@ end
 
 
 _ = let plt=plot(;leg=false),
-  netest = n_e_rec
-  scatter!(rates_e,rates_test[1:netest];ratio=1,
-    xlabel="Dylan's model",ylabel="Suchulz et al")
+  netest = Ne
+  scatter!(rates_e,totalrates_au[1:netest];ratio=1,
+    xlabel="Dylan's model",ylabel="Suchulz et al",title="E rates")
   plot!(plt,identity; linewidth=2)
 end
 
 _ = let plt=plot(;leg=false),
-  ntest = n_i_rec
-  scatter!(rates_i,rates_test[Ne+1:Ne+ntest];ratio=1,
-    xlabel="Dylan's model",ylabel="Suchulz et al")
+  ntest = Ni
+  scatter!(rates_i,totalrates_au[Ne+1:Ne+ntest];ratio=1,
+    xlabel="Dylan's model",ylabel="Suchulz et al",title="I rates")
   plot!(plt,identity;linewidth=2)
 end
 
-##
+@info """ \\
+Overall mean rate for E population :  \\
+  + Dylan : $(mean(rates_e)) Hz \\
+  + Auguste : $(mean(totalrates_au[1:Ne])) Hz
 
+Overall mean rate for I population :  \\
+  + Dylan : $(mean(rates_i)) Hz \\
+  + Auguste : $(mean(totalrates_au[Ne+1:end])) Hz
+"""
 
-_ = let neu = 202,
-  plt=plot()
-  plot!(plt,rec_state_e.times,rec_state_e.state_now[neu,:];linewidth=2,leg=false,
-    xlims=(0,1),ylims=(-70,-40))
-  ts = (1:size(vtest,2)).*0.1E-3
-  plot!(plt,ts,vtest[neu,:];linewidth=2,linestyle=:dash)
-end
-_ = let plt=plot(),neu=16
-  plot!(plt,rec_state_i.times,rec_state_i.state_now[neu,:];linewidth=2,leg=false,
-    xlims=(0,1))
-  ts = (1:size(vtest,2)).*0.1E-3
-  plot!(plt,ts,vtest[Ne+neu,:];linewidth=2,linestyle=:dash)
+using StatsBase
+_ = let plt = plot()
+  nbins = 60
+  bins = range(0,15;length=nbins)
+  h1 = fit(Histogram,rates_e,bins)
+  plot!(plt,midpoints(bins),h1.weights;linewidth=2,label="Dylan")
+  h2 = fit(Histogram,totalrates_au[1:Ne],bins)
+  plot!(plt,midpoints(bins),h2.weights;linewidth=2,label="Auguste",
+    title="E rates density",xlabel="rate (Hz)")
 end

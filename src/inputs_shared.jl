@@ -235,13 +235,14 @@ end
 function _make_pattern_function(pattern_sequence::Vector{<:Integer},
     pattern_times::Vector{R},full_patterns::Matrix{R}) where R
   return function (t::R,i::Integer)
-    it = searchsortedfirst(pattern_times,t)-1
-    if checkbounds(Bool,pattern_sequence,it)
-      idxpatt = pattern_sequence[it]
-      return full_patterns[i,idxpatt]
-    else
-      return full_patterns[i,end]
+    if t >= pattern_times[1]
+      it = searchsortedfirst(pattern_times,t)-1
+      if checkbounds(Bool,pattern_sequence,it)
+        idxpatt = pattern_sequence[it]
+        return full_patterns[i,idxpatt]
+      end
     end
+    return full_patterns[i,end]
   end 
 end
 
@@ -497,11 +498,12 @@ function _rand_by_thinning(t_start::Real,get_rate::Function,get_rate_upper::Func
     Tmax=50.0,nowarning::Bool=false)
   t = t_start 
   while (t-t_start)<Tmax # Tmax is upper limit, if rate too low 
-    rup = get_rate_upper(t)
+    (rup::Float64) = get_rate_upper(t)
     Δt = rand(Exponential())./rup
     t = t+Δt
     u = rand(Uniform(0.0,rup))
-    if u <= get_rate(t) 
+    (_r::Float64) = get_rate(t) 
+    if u <= _r
       return t
     end
   end

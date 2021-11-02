@@ -47,16 +47,15 @@ function plasticity_update!(t_now::Real,dt::Real,
     end
   end
   # postsynaptic spike: go along w row
-  if !isempty(idx_post_spike)
-    # innefficient ... need to search i element for each column
-    for i_post in idx_post_spike
-      for j_pre in (1:size(conn.weights,2))
-        _pnz = searchsortedfirst(row_idxs,i_post,
-            _colptr[j_pre],_colptr[j_pre+1]-1,Base.Order.Forward)
-        if _pnz != _colptr[j_pre+1]  # update only if row i is present in row_idxs slice
-          Δw = plast.r[j_pre]*plast.Aplus 
-          weightsnz[_pnz]+= Δw
-        end
+  # innefficient ... need to search i element for each column
+  for i_post in idx_post_spike
+    for j_pre in (1:pspre.n)
+      _start = _colptr[j_pre]
+      _end = _colptr[j_pre+1]-1
+      _pnz = searchsortedfirst(row_idxs,i_post,_start,_end,Base.Order.Forward)
+      if (_pnz<=_end) && (row_idxs[_pnz] == i_post) # must check!
+        Δw = plast.r[j_pre]*plast.Aplus 
+        weightsnz[_pnz]+= Δw
       end
     end
   end
@@ -126,11 +125,12 @@ function plasticity_update!(t_now::Real,dt::Real,
   # innefficient ... need to search i element for each column
   for i_post in idx_post_spike
     for j_pre in (1:pspre.n)
-      _pnz = collect(searchsorted(row_idxs,i_post,
-          _colptr[j_pre],_colptr[j_pre+1]-1,Base.Order.Forward))
-      if !isempty(_pnz) 
+      _start = _colptr[j_pre]
+      _end = _colptr[j_pre+1]-1
+      _pnz = searchsortedfirst(row_idxs,i_post,_start,_end,Base.Order.Forward)
+      if (_pnz<=_end) && (row_idxs[_pnz] == i_post) # must check!
         Δw = plast.r1[j_pre]*(plast.A2plus+plast.A3plus*plast.o2[i_post])
-        weightsnz[_pnz[1]]+= Δw
+        weightsnz[_pnz]+= Δw
       end
     end
   end
@@ -188,16 +188,15 @@ function plasticity_update!(t_now::Real,dt::Real,
     end
   end
   # postsynaptic spike: go along w row
-  if !isempty(idx_post_spike)
     # innefficient ... need to search i element for each column
-    for j_pre in (1:size(conn.weights,2))
-      for i_post in idx_post_spike
-        _pnz = collect(searchsorted(row_idxs,i_post,
-            _colptr[j_pre],_colptr[j_pre+1]-1,Base.Order.Forward))
-        if !isempty(_pnz)
-          Δw = plast.η*plast.r[j_pre]
-          weightsnz[_pnz[1]] = min(0.0,weightsnz[_pnz]+Δw)
-        end
+  for i_post in idx_post_spike
+    for j_pre in (1:pspre.n)
+      _start = _colptr[j_pre]
+      _end = _colptr[j_pre+1]-1
+      _pnz = searchsortedfirst(row_idxs,i_post,_start,_end,Base.Order.Forward)
+      if (_pnz<=_end) && (row_idxs[_pnz] == i_post) # must check!
+        Δw = plast.η*plast.r[j_pre]
+        weightsnz[_pnz] = min(0.0,weightsnz[_pnz]+Δw)
       end
     end
   end

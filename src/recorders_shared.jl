@@ -87,6 +87,7 @@ function get_mean_rates(rec::RecCountSpikes,dt::Float64,Ttot::Float64)
 end
 
 
+
 struct RecSpikes{PS<:PopulationState}
   ps::PS
   isdone::Ref{Bool}
@@ -217,23 +218,40 @@ end
 ##
 
 function binned_spikecount(dt::Float64,rspk::RecSpikes;
-    Nneus::Int64=-1,Ttot::Float64=0.0)
+    Nneurons::Int64=-1,Ttot::Float64=0.0)
   return binned_spikecount(dt,get_spiketimes_spikeneurons(rspk)...;
-    Nneus=Nneus,Ttot=Ttot)
+    Nneurons=Nneurons,Ttot=Ttot)
 end
 function binned_spikecount(dt::Float64,spktimes::Vector{Float64},
-    spkneurons::Vector{Int64};Nneus::Int64=-1,Ttot::Float64=0.0)
+    spkneurons::Vector{Int64};Nneurons::Int64=-1,Ttot::Float64=0.0)
   Ttot = max(Ttot, maximum(spktimes)+dt)
-  Nneus = max(Nneus,maximum(spkneurons))
+  Nneus = max(Nneurons,maximum(spkneurons))
   tbins = 0.0:dt:Ttot
   ntimes = length(tbins)-1
   binnedcount = fill(0,(Nneus,ntimes))
   for (t,neu) in zip(spktimes,spkneurons)
-    tidx = searchsortedfirst(tbins,t)-1
-    binnedcount[neu,tidx]+=1
+    if t >= tbins[1] # just in case
+      tidx = searchsortedfirst(tbins,t)-1
+      binnedcount[neu,tidx]+=1
+    end
   end
   binsc=midpoints(tbins)
   return binsc,binnedcount
+end
+
+# simular to the above, but averages over selected neurons
+# and returns a value in Hz
+function get_psth(idxs_neu::AbstractVector{<:Integer},
+    dt::Float64,rspk::RecSpikes;
+    Nneurons::Int64=-1,Ttot::Float64=0.0)
+  return get_psth(idxs_neu,dt,get_spiketimes_spikeneurons(rspk)...;
+    Nneurons=Nneurons,Ttot=Ttot)
+end
+function get_psth(idxs_neu::AbstractVector{<:Integer},dt::Float64,spktimes::Vector{Float64},
+  spkneurons::Vector{Int64};Nneurons::Int64=-1,Ttot::Float64=0.0)
+ tmid,counts = binned_spikecount(dt,spktimes,spkneurons;Nneurons=Nneurons,Ttot=Ttot)
+ ret2 = mean(view(counts,idxs_neu,:);dims=1)[:]
+ return tmid,ret2 ./ dt
 end
 
 
@@ -259,8 +277,10 @@ function raster_png(dt::Float64,rspk::RecSpikes ;
   ntimes = length(tbins)-1
   rasterbin = falses(Nneurons,ntimes)
   for (neu,t) in zip(spkn,spkt)
-    tidx = searchsortedfirst(tbins,t)-1
-    rasterbin[neu,tidx]=true
+    if t >= tbins[1] # just in case
+      tidx = searchsortedfirst(tbins,t)-1
+      rasterbin[neu,tidx]=true
+    end
   end
   if !isempty(reorder)
     rasterbin .= rasterbin[reorder,:]

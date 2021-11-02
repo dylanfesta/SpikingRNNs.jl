@@ -34,7 +34,13 @@ end
 
 # plasticity and initial weights
 
-triplets_plasticity = let (n_post,n_pre) = size(wmat_start),
+wstart = let w = 100.0
+  wm = fill(w,(nneus,nneus))
+  wm[diagind(wm)] .= 0.0
+  sparse(wm)
+end
+
+triplets_plasticity = let (n_post,n_pre) = size(wstart),
   τplus = 17E-3 # 16.8 
   τminus = 34E-3 # 33.7
   τx = 100E-3 # 101
@@ -48,11 +54,6 @@ triplets_plasticity = let (n_post,n_pre) = size(wmat_start),
     A2minus,A3minus,n_post,n_pre)
 end
 
-wstart = let w = 100.0
-  wm = fill(w,(nneus,nneus))
-  wm[diagind(wm)] .= 0.0
-  sparse(wm)
-end
 
 conn = S.ConnectionPlasticityTest(wstart,triplets_plasticity)
 
@@ -159,7 +160,7 @@ function test_plasticity(lowrate::R,highrate::R,
   return _dostuff.((w_low_high,w_high_low))
 end
 ##
-triplets_plasticity = let (n_post,n_pre) = size(wmat_start),
+triplets_plasticity = let (n_post,n_pre) = size(wstart),
   τplus = 17E-3 # 16.8 
   τminus = 34E-3 # 33.7
   τx = 100E-3 # 101
@@ -213,6 +214,7 @@ heatmap(ratestest,ratestest,testret;
 
 heatmap(ratestest,ratestest,plus_minus_rescale(testret);
   color=:seismic,ratio=1)
+
 
 
 
