@@ -3,6 +3,7 @@ Here I show the exact correspondence
 between my spiking implementation and code by
 Litwin-Kumar / Auguste Schulz
 For one large random network
+and inputs in currents (high freq input still missing)
 =#
 
 push!(LOAD_PATH, abspath(@__DIR__,".."))
@@ -240,7 +241,7 @@ end
 
 const Ne = 4000
 const Ni = 1000
-const Ttot = 20.0
+const Ttot = 60.0
 const all_in_e = (60.0-52.5)
 const all_in_i = (70.0-53.0)
 
@@ -321,7 +322,7 @@ v_rest_i = -70.0
 v_rev_e = 0.0
 v_rev_i = -75.0
 v_leak_e = v_rest_e
-v_leak_i = v_resti
+v_leak_i = v_rest_i
 v_reset_e = v_rest_e
 v_reset_i = v_rest_i
 Cap = 300.0 #capacitance mF
@@ -415,8 +416,8 @@ ps_i.state_now .= v_start[Ne+1:end]
   end
 end
 
-#S.add_fake_spikes!(1.0vth_e,rec_state_e,rec_spikes_e)
-#S.add_fake_spikes!(0.0,rec_state_i,rec_spikes_i)
+S.add_fake_spikes!(1.0vth_e,rec_state_e,rec_spikes_e)
+S.add_fake_spikes!(0.0,rec_state_i,rec_spikes_i)
 ##
 
 rates_e = let rdic=S.get_mean_rates(rec_spikes_e,dt,Ttot)
@@ -438,14 +439,14 @@ end
 _ = let plt=plot(;leg=false),
   netest = n_e_rec
   scatter!(rates_e,rates_test[1:netest];ratio=1,
-    xlabel="Dylan's model",ylabel="Suchulz et al")
+    xlabel="Dylan's model",ylabel="Suchulz et al",title="E rates")
   plot!(plt,identity; linewidth=2)
 end
 
 _ = let plt=plot(;leg=false),
   ntest = n_i_rec
   scatter!(rates_i,rates_test[Ne+1:Ne+ntest];ratio=1,
-    xlabel="Dylan's model",ylabel="Suchulz et al")
+    xlabel="Dylan's model",ylabel="Suchulz et al",title="I rates")
   plot!(plt,identity;linewidth=2)
 end
 
