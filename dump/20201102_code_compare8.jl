@@ -209,7 +209,6 @@ function genstimparadigmnovelcont(stimulus; Nimg = 4, Nreps = 20, Nseq = 5, Nblo
   
   end
   
-  
  
 function gennextsequencenovel(stim::Array{Float64,2}, firstimg, novelimg; Nimg = 4, Nreps = 20, Nseq = 5, Nblocks = 1, stimstart = 1000, lenstim = 1000, lenpause = 3000, strength = 8)
 	"""generate a stimulus sequence with novel stim
@@ -584,6 +583,12 @@ assemblymembers = initassemblymembers(Nassemblies = Nass,Ne = Ne)
 # inhibitory tuning
 inhibassemblies = initinhibassemblymembers(Nassemblies = Nass, Ne = Ne, Ni = Ni)
 
+
+const assembly_vectors = 
+    map(eachrow(hcat(assemblymembers,inhibassemblies))) do r
+    sort(filter(>(0),r))
+end
+
 # --------------------- store relevant initialisation parameters -------------------------------------------
 #=
 h5write(savefile, "initial/stimulus", stimulus)
@@ -646,7 +651,8 @@ function runsimulation_inhibtuning(ifiSTDP,ifwadapt,stimparams,stimulus::Array{F
 	storagetimes::Array{Int64,1}, savefile::String, lenpretrain,
 	inhibassemblies::Array{Int64,2}; dt = 0.1, T = 2000,
 	adjustfactor = 1, adjustfactorinhib=1, inhibtuing = true, inhibfactor = 0.1,
-	bwfactor=100, tauw_adapt=150,v_start::Union{Nothing,Vector{Float64}}=nothing)
+	bwfactor=100, tauw_adapt=150,v_start::Union{Nothing,Vector{Float64}}=nothing,
+  psth_my_idxs=collect(1:100))
 
 """	Runs a new simulation of a plastic E-I spiking neural network model where both E and I
 	neurons receive tuned input
@@ -943,7 +949,8 @@ function runsimulation_inhibtuning(ifiSTDP,ifwadapt,stimparams,stimulus::Array{F
   # MODIFICATION TO SAVE E AND I PSTH
   psth_e = Vector{Int64}(undef,Nsteps)
   psth_i = Vector{Int64}(undef,Nsteps)
-  fill!(psth_e,0) ; fill!(psth_i,0)
+  psth_myidx = Vector{Int64}(undef,Nsteps)
+  fill!(psth_e,0) ; fill!(psth_i,0) ; fill!(psth_myidx,0)
 
 	#   ------------------------------------------------------------------------
 	#
@@ -1140,6 +1147,9 @@ function runsimulation_inhibtuning(ifiSTDP,ifwadapt,stimparams,stimulus::Array{F
 							lastSpike[cc] = t;
 							totalspikes[cc] += 1;
               # SAVE PSTH
+              if cc in psth_my_idxs
+                psth_myidx[tt] += 1
+              end
               if cc <= Ne
                 psth_e[tt] += 1
               else
@@ -1327,7 +1337,7 @@ function runsimulation_inhibtuning(ifiSTDP,ifwadapt,stimparams,stimulus::Array{F
 
 	println("simulation finished")
 
-	return totalspikes,psth_e,psth_i
+	return totalspikes,psth_e,psth_i,psth_myidx
 end # function simulation
 
 using StatsBase
@@ -1346,7 +1356,7 @@ end
 
 weights_start = permutedims(weights)
 
-const Ttot = 3.0
+const Ttot = 10.0
 const Ttot_ms = Int64(Ttot*1E3)
 
 v_start = let vreset = -60.0 , vth0=-52.0
@@ -1354,10 +1364,13 @@ v_start = let vreset = -60.0 , vth0=-52.0
   [ doone() for i in 1:Ncells]
 end
 
-@time totalspikes,psth_e_au,psth_i_au = runsimulation_inhibtuning(ifiSTDP,ifwadapt,stimparams,stimulus, weights,
+idxs_as1e = filter(<=(Ne),assembly_vectors[1])
+N_as1e = length(idxs_as1e)
+
+@time totalspikes,psth_e_au,psth_i_au,psth_myidx = runsimulation_inhibtuning(ifiSTDP,ifwadapt,stimparams,stimulus, weights,
   assemblymembers, spiket, storagedec, storagetimes,savefile, lenpretrain, inhibassemblies,
   adjustfactor = adjustfactor, adjustfactorinhib = adjustfactorinhib,
-  inhibfactor = inhibfactor, T = Ttot_ms,v_start=v_start )
+  inhibfactor = inhibfactor, T = Ttot_ms,v_start=v_start,psth_my_idxs=idxs_as1e)
 
 totalrates_au = totalspikes ./ Ttot
 
@@ -1372,9 +1385,10 @@ times_psth = let dtstep = dt_psth
 end
 psth_e_au_less =  do_psth_au(psth_e_au,times_psth) ./ Ne
 psth_i_au_less =  do_psth_au(psth_i_au,times_psth) ./ Ni
+psth_myidx_au_less =  do_psth_au(psth_myidx,times_psth) ./ N_as1e
 
-bar(midpoints(times_psth),psth_e_au_less)
-bar(midpoints(times_psth),psth_i_au_less)
+#bar(midpoints(times_psth),psth_e_au_less)
+#bar(midpoints(times_psth),psth_i_au_less)
 # ---------------------- store final params ---------------------------------------------------------
 #=
 h5write(savefile, "postsim/weights", weights)
@@ -1498,30 +1512,38 @@ ps_i = S.PSLIFConductance(nt_i,Ni)
 
 ## Input : super easy! Just use the matrix `stimulus` to define a function!
 
-function _is_in_assebly(neu::Integer,as::Integer)
+
+function _is_in_assembly_old(neu::Integer,as::Integer)
   asrow = view(assemblymembers,as,:)
   return neu in asrow
 end
+function _is_in_assembly(neu_idx::Integer,as_vec::Vector{<:Integer})
+  if as_vec[1] <= neu_idx <= as_vec[end]
+    idx = searchsortedfirst(as_vec,neu_idx)
+    return as_vec[idx] == neu_idx
+  else
+    return false
+  end
+end
 
-stimulus_sec = copy(stimulus)
+const stimulus_sec = copy(stimulus)
 stimulus_sec[:,[2,3]] ./= 1E3
 stimulus_sec[:,4] .*= 1E3
 
-function inputfun(t::R,i::Integer,low::R) where R<:Real
-  as_list = view(stimulus_sec,:,1)
-  stimstarts = view(stimulus_sec,:,2)
-  stimends = view(stimulus_sec,:,3)
-  # catch the first
-  (t <= stimstarts[1]) && (return low)
+function inputfun(t::R,i::Integer,low::R,
+    stimulus_mat::Matrix{Float64},
+    assembly_v::Vector{Vector{Int64}};scale_factor::Float64=1.0) where R<:Real
+  # catch the first or last
+  (!(stimulus_mat[1,2] <= t <= stimulus_mat[end,3])) && (return low)
+  stimstarts = view(stimulus_mat,:,2)
   # find row number
   therow = searchsortedfirst(stimstarts,t) - 1
-  # catch the last
-  (therow > length(stimstarts)) && (return low)
   # account for stim duration
-  (t >= stimends[therow]) && (return low)
+  (t >= stimulus_mat[therow,3]) && (return low)
   # ok, the assembly is active!
-  if _is_in_assebly(i,Int64(as_list[therow]))
-    return low + stimulus_sec[therow,4] # add to stimulus 
+  as_v = assembly_v[Int64(stimulus_mat[therow,1])]
+  if _is_in_assembly(i,as_v)
+    return low + scale_factor*stimulus_mat[therow,4] # add to stimulus 
   else
     return low
   end
@@ -1529,18 +1551,28 @@ function inputfun(t::R,i::Integer,low::R) where R<:Real
 end
 
 
-nt_in_e = let low = in_rate_e, high=low+in_assembly_on
-  ratefun = (t,i) -> inputfun(t,i,low)
-  ratefun_upper = (t,i) -> high
+function inputfun_upper(t::R,i::Integer,low::R,stimmat::Matrix{R},asv::Vector;
+   scale_factor::Float64=1.0) where R<:Real
+  return max(inputfun(t,i,low,stimmat,asv;scale_factor=scale_factor), 
+              inputfun(t+2dt,i,low,stimmat,asv;scale_factor=scale_factor))
+end
+
+
+nt_in_e = let low = in_rate_e, 
+  ratefun = (t,i) -> inputfun(t,i,low,stimulus_sec,assembly_vectors)
+  ratefun_upper = (t,i) -> inputfun_upper(t,i,low,stimulus_sec,assembly_vectors)
   sker = S.SKExpDiff(taueplus,taueminus)
   sgen = S.SGPoissonFExact( ratefun,ratefun_upper )
   S.NTInputConductance(sgen,sker,v_rev_e) 
 end
 ps_in_e = S.PSInputPoissonConductanceExact(nt_in_e,Jin_e,Ne)
 
-nt_in_i = let low = in_rate_i, high=low+in_assembly_on
-  ratefun = (t,i) -> inputfun(t,i+Ne,low) # add Ne to access inh indexes
-  ratefun_upper = (t,i) -> high
+nt_in_i = let inh_fact=inhibfactor,
+  low = in_rate_i,
+  ratefun = (t,i) -> inputfun(t,Ne+i,low,
+    stimulus_sec,assembly_vectors;scale_factor=inh_fact) # add Ne to access inh indexes
+  ratefun_upper = (t,i) -> inputfun_upper(t,Ne+i,low,stimulus_sec,assembly_vectors;
+            scale_factor=inh_fact)
   sker = S.SKExpDiff(taueplus,taueminus)
   sgen = S.SGPoissonFExact(ratefun,ratefun_upper)
   S.NTInputConductance(sgen,sker,v_rev_e) 
@@ -1550,16 +1582,20 @@ ps_in_i = S.PSInputPoissonConductanceExact(nt_in_i,Jin_i,Ni)
 ## plot input functions, out of curiosity
 
 as_ordering = let Ntot=Ncells
-  as_v = map(eachrow(assemblymembers)) do r
-    filter(>(0),r)
-  end
-  S.order_by_pattern_idxs(as_v,Ntot)
+  S.order_by_pattern_idxs(assembly_vectors,Ntot)
 end
 
 
-_ = let low = in_rate_e, high=low+in_assembly_on
-  ratefun = (t,i) -> inputfun(t,i,low)
-  times = range(0,250;length=200)
+_ = let low_e = in_rate_e, low_i = in_rate_i,
+  _scal = inhibfactor
+  ratefun = function (t,i) 
+    if i<=Ne 
+      inputfun(t,i,low_e,stimulus_sec,assembly_vectors)
+    else
+      inputfun(t,i,low_i,stimulus_sec,assembly_vectors,scale_factor=_scal)
+    end
+  end
+  times = range(0,60;length=200)
   nshow = Ncells
   neushow = as_ordering[1:nshow]
   vals = hcat([ ratefun.(t,neushow) for t in times]...)
@@ -1598,10 +1634,11 @@ krec = 1
 #n_e_rec = 1000
 #n_i_rec = 1000
 t_wup = 0.0
+expected_rate = 15.0
 #rec_state_e = S.RecStateNow(ps_e,krec,dt,Ttot;idx_save=collect(1:n_e_rec),t_warmup=t_wup)
 #rec_state_i = S.RecStateNow(ps_i,krec,dt,Ttot;idx_save=collect(1:n_i_rec),t_warmup=t_wup)
-rec_spikes_e = S.RecSpikes(ps_e,5.0,Ttot;idx_save=collect(1:Ne),t_warmup=t_wup)
-rec_spikes_i = S.RecSpikes(ps_i,5.0,Ttot;idx_save=collect(1:Ni),t_warmup=t_wup)
+rec_spikes_e = S.RecSpikes(ps_e,expected_rate,Ttot;idx_save=collect(1:Ne),t_warmup=t_wup)
+rec_spikes_i = S.RecSpikes(ps_i,expected_rate,Ttot;idx_save=collect(1:Ni),t_warmup=t_wup)
 
 ## Run
 
@@ -1643,55 +1680,22 @@ end
 
 _ = let plt = plot()
   ts,psth_e = S.get_psth(collect(1:Ne),dt_psth,rec_spikes_e;Nneurons=Ne,Ttot=Ttot)
-  bar!(plt,ts,psth_e;opacity=0.3)
-  bar!(plt,ts,psth_e_au_less;opacity=0.3)
+  bar!(plt,ts,psth_e;opacity=0.5,label="Dylan's")
+  bar!(plt,ts,psth_e_au_less;opacity=0.5,title="excitation",label="Auguste's")
 end
 
 ##
 _ = let plt = plot()
   ts,psth_i = S.get_psth(collect(1:Ni),dt_psth,rec_spikes_i;Nneurons=Ni,Ttot=Ttot)
-  @show size(ts)
-  bar!(plt,ts,psth_i;opacity=0.3)
-  bar!(plt,ts,psth_i_au_less;opacity=0.3)
+  bar!(plt,ts,psth_i;opacity=0.3,label="Dyl")
+  bar!(plt,ts,psth_i_au_less;opacity=0.3,title="inhibition",lab="Aug")
 end
-
 
 ##
+_ = let plt = plot()
+  ts,psth_myidx = S.get_psth(idxs_as1e,dt_psth,rec_spikes_e;Nneurons=Ni,Ttot=Ttot)
+  bar!(plt,ts,psth_myidx;opacity=0.3,label="Dyl")
+  bar!(plt,ts,psth_myidx_au_less;opacity=0.3,title="Assembly 1",lab="Aug")
+end
 
-tbin,spks = S.binned_spikecount(25E-3,rec_spikes_e;Nneurons=Ne,Ttot=Ttot)
-
-heatmap(tbin,1:Ne,spks)
 ##
-
-
-#=
-rates_e = let rdic=S.get_mean_rates(rec_spikes_e,dt,Ttot)
-  ret = fill(0.0,Ne)
-  for (k,v) in pairs(rdic)
-    ret[k] = v
-  end
-  ret
-end
-rates_i = let rdic=S.get_mean_rates(rec_spikes_i,dt,Ttot)
-  ret = fill(0.0,Ni)
-  for (k,v) in pairs(rdic)
-    ret[k] = v
-  end
-  ret
-end
-
-
-_ = let plt=plot(;leg=false),
-  netest = Ne
-  scatter!(rates_e,totalrates_au[1:netest];ratio=1,
-    xlabel="Dylan's model",ylabel="Suchulz et al",title="E rates")
-  plot!(plt,identity; linewidth=2)
-end
-
-_ = let plt=plot(;leg=false),
-  ntest = Ni
-  scatter!(rates_i,totalrates_au[Ne+1:Ne+ntest];ratio=1,
-    xlabel="Dylan's model",ylabel="Suchulz et al",title="I rates")
-  plot!(plt,identity;linewidth=2)
-end
-=#

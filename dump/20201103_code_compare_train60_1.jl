@@ -11,10 +11,10 @@ way in both models (for simplicity)
 
 # include inbuilt modules
 using Distributions
+using SparseArrays
 using Dates
 using LinearAlgebra
 using Random
-using Distributed
 using Plots ; theme(:dark)
 using Random ; Random.seed!(0)
 
@@ -631,12 +631,14 @@ if Ntrain == 0 # switch back to 1 as it is used in run simulation julia indexing
 end
 
 ##
-hardbounds(x,min,max) = min(max,max(x,min))
-function synaptic_normalization_e!(weights,Ne,tt,inormalize,sums0,npres,wmin,wmax)
+hardbounds(x,low,high) = min(high,max(x,low))
+function synaptic_normalization_e!(weights::Matrix{Float64},
+    Ne::Integer,tt::Integer,inormalize::Integer,sums0::Vector{Float64},
+    npres::Vector{<:Integer},wmin::Real,wmax::Real)
   if mod(tt,inormalize) == 0 
     for cc = 1:Ne
-      # sums over incoming connections (pre subtractive normalization)
-      sumwee = sum(view(weights,:,cc))
+      # sums over incoming EE connections (pre subtractive normalization)
+      sumwee = sum(view(weights,1:Ne,cc))
       for dd = 1:Ne
         if weights[dd,cc] > 0.
           weights[dd,cc] -= (sumwee-sums0[cc])/npres[cc]
@@ -648,6 +650,23 @@ function synaptic_normalization_e!(weights,Ne,tt,inormalize,sums0,npres,wmin,wma
   return nothing
 end
 
+function synaptic_normalization_e_sparse!(sparseweights_ee::SparseMatrixCSC,
+    Ne::Integer,k::Integer,inormalize::Integer,sums0::Vector{Float64},
+    npres::Vector{<:Integer},wmin::Real,wmax::Real)
+  if mod(k,inormalize) == 0 
+    for cc = 1:Ne
+      # sums over incoming EE connections (pre subtractive normalization)
+      sumwee = sum(view(sparseweights_ee,cc,:))
+      for dd = 1:Ne
+        if weights[cc,dd] > 0.
+          weights[cc,dd] -= (sumwee-sums0[cc])/npres[cc]
+          weights[cc,dd] = hardbounds(weights[cc,dd],wmin,wmax)
+        end # if
+      end # dd for
+    end # cc for
+  end #end normalization
+  return nothing
+end
 
 # --------------------- run simulation ---------------------------------------------------------------
 ##
@@ -809,7 +828,7 @@ function runsimulation_inhibtuning(ifiSTDP,ifwadapt,stimparams,stimulus::Array{F
     =#
 
 		# triplet parameters
-		tripletrule = false # true
+		tripletrule = true # true
 		o1 = zeros(Float64,Ne);
 		o2 = zeros(Float64,Ne);
 		r1 = zeros(Float64,Ne);
@@ -837,7 +856,7 @@ function runsimulation_inhibtuning(ifiSTDP,ifwadapt,stimparams,stimulus::Array{F
 		# simulation parameters
 		taurefrac = 1 #ms refractory preriod clamped for 1 ms
 		dtnormalize = 20 #how often to normalize rows of ee weights ms heterosynaptic plasticity
-		stdpdelay = 1000 #time before stdp is activated, to allow transients to die out ms
+		stdpdelay = 0 # 1000 #time before stdp is activated, to allow transients to die out ms
 		dtsaveweights = 2000  # save weights  every 2000 ms
 		# minimum and maximum of storing the weight matrices
 		minwstore = 80
@@ -1039,27 +1058,30 @@ function runsimulation_inhibtuning(ifiSTDP,ifwadapt,stimparams,stimulus::Array{F
 
 				end #end loop over stimuli
 
-				if mod(tt,inormalize) == 0 #excitatory synaptic normalization
-					for cc = 1:Ne
-						sumwee = 0.
-						for dd = 1:Ne
-							sumwee += weights[dd,cc]
-						end # dd
+        synaptic_normalization_e!(weights,Ne,tt,inormalize,
+            sumwee0,Nee,Jeemin,Jeemax)
+				# if mod(tt,inormalize) == 0 #excitatory synaptic normalization
+        #   weights_copy = copy(weights)
+				# 	for cc = 1:Ne
+				# 		sumwee = 0.
+				# 		for dd = 1:Ne
+				# 			sumwee += weights[dd,cc]
+				# 		end # dd
 
-						for dd = 1:Ne
-							if weights[dd,cc] > 0.
-								weights[dd,cc] -= (sumwee-sumwee0[cc])/Nee[cc]
-								if weights[dd,cc] < Jeemin
-									weights[dd,cc] = Jeemin
-								elseif weights[dd,cc] > Jeemax
-									weights[dd,cc] = Jeemax
-								end # if
-							end # if
-						end # dd for
-					end # cc for
-					#println("Normalised...")
-				end #end normalization
-        
+				# 		for dd = 1:Ne
+				# 			if weights[dd,cc] > 0.
+				# 				weights[dd,cc] -= (sumwee-sumwee0[cc])/Nee[cc]
+				# 				if weights[dd,cc] < Jeemin
+				# 					weights[dd,cc] = Jeemin
+				# 				elseif weights[dd,cc] > Jeemax
+				# 					weights[dd,cc] = Jeemax
+				# 				end # if
+				# 			end # if
+				# 		end # dd for
+				# 	end # cc for
+				# 	#println("Normalised...")
+        #   @assert all( isapprox.(weights,weights_copy) ) 
+				# end #end normalization
         #=
 				if mod(tt,saveweights) == 0 #&& (weightstore < 20 || mod(weightstore,100) == 0)#excitatory synaptic normalization
 					weightstore += 1
@@ -1164,7 +1186,7 @@ function runsimulation_inhibtuning(ifiSTDP,ifwadapt,stimparams,stimulus::Array{F
 						end
 
 						if spiked[cc] #spike occurred
-							spiked[cc] = true;
+							# spiked[cc] = true;
 							v[cc] = vreset;
 							lastSpike[cc] = t;
 							totalspikes[cc] += 1;
@@ -1221,7 +1243,9 @@ function runsimulation_inhibtuning(ifiSTDP,ifwadapt,stimparams,stimulus::Array{F
 									if weights[dd,cc] == 0.
 										continue
 									end
-									weights[dd,cc] += eta*trace_istdp[dd]
+                  Δw =  eta*trace_istdp[dd]
+                  #@show Δw
+									weights[dd,cc] += Δw
 
 									if weights[dd,cc] > Jeimax
 										weights[dd,cc] = Jeimax
@@ -1232,8 +1256,9 @@ function runsimulation_inhibtuning(ifiSTDP,ifwadapt,stimparams,stimulus::Array{F
 									if weights[cc,dd] == 0.
 										continue
 									end
-
-									weights[cc,dd] += eta*(trace_istdp[dd] - 2*r0*tauy)
+                  Δw = eta*(trace_istdp[dd] - 2*r0*tauy)
+                  #@show Δw
+									weights[cc,dd] += Δw
 									if weights[cc,dd] > Jeimax
 										weights[cc,dd] = Jeimax
 									elseif weights[cc,dd] < Jeimin
@@ -1247,7 +1272,8 @@ function runsimulation_inhibtuning(ifiSTDP,ifwadapt,stimparams,stimulus::Array{F
 					if tripletrule
 
 					#triplet, ltd component
-					if spiked[cc] && (t > stdpdelay) && (cc <= Ne)
+          # WARNING : removed pretrain for test purposes
+					if spiked[cc] &&  (cc<=Ne) #(t > stdpdelay) && (cc <= Ne)
 						r1[cc] = r1[cc] + 1 # incrememt r1 before weight update
 						for dd = 1:Ne #depress weights from cc to all its postsyn cells
 							# cc = pre dd = post
@@ -1266,7 +1292,8 @@ function runsimulation_inhibtuning(ifiSTDP,ifwadapt,stimparams,stimulus::Array{F
 					end # ltd
 
 					#triplet, ltp component
-					if spiked[cc] && (t > stdpdelay) && (cc <= Ne)
+          # WARNING : removed pretrain for test purposes
+					if spiked[cc] &&  (cc<=Ne) #(t > stdpdelay) && (cc <= Ne)
 						o1[cc] = o1[cc] + 1 # incrememt r1 before weight update
 						# cc = post dd = pre
 						for dd = 1:Ne #increase weights from cc to all its presyn cells dd
@@ -1325,7 +1352,7 @@ function runsimulation_inhibtuning(ifiSTDP,ifwadapt,stimparams,stimulus::Array{F
 			forwardInputsIPrev = copy(forwardInputsI)
 
 			# once the actual stimulation begins, eventually readjust the learning rate
-			if tt == ttstimbegin
+			if tt==1  # tt == ttstimbegin
 
 						tau_p = 16.8;        # in ms
 						tau_m = 33.7;        # in s
@@ -1376,9 +1403,12 @@ end
 
 ##
 
+# WARNING , weights is pre->post
+# but I use the post<-pre convention
+
 weights_start = permutedims(weights)
 
-const Ttot = 10.0
+const Ttot = 0.5
 const Ttot_ms = Int64(Ttot*1E3)
 
 v_start = let vreset = -60.0 , vth0=-52.0
@@ -1396,7 +1426,7 @@ N_as1e = length(idxs_as1e)
 
 totalrates_au = totalspikes ./ Ttot
 
-weights_end = permutedims(weights)
+weights_end_au = permutedims(weights)
 
 # error("simulation done! STOPPP!")
 
@@ -1408,11 +1438,6 @@ end
 psth_e_au_less =  do_psth_au(psth_e_au,times_psth) ./ Ne
 psth_i_au_less =  do_psth_au(psth_i_au,times_psth) ./ Ni
 psth_myidx_au_less =  do_psth_au(psth_myidx,times_psth) ./ N_as1e
-_ = let plt = plot()
-  ts,psth_i = S.get_psth(collect(1:Ni),dt_psth,rec_spikes_i;Nneurons=Ni,Ttot=Ttot)
-  bar!(plt,ts,psth_i;opacity=0.3,label="Dyl")
-  bar!(plt,ts,psth_i_au_less;opacity=0.3,title="inhibition",lab="Aug")
-end
 
 bar(midpoints(times_psth),psth_e_au_less)
 bar(midpoints(times_psth),psth_i_au_less)
@@ -1429,26 +1454,42 @@ h5write(savefile, "postsim/totalspikes", totalspikes)
 
 # ---------------------- DO THINGS ---------------------------------------------------------
 
-function _reldiff(a,b)
-  if a+b == 0.0
-    return 0.0
-  else
-    return (a-b)/(0.5(a+b))
+_ =  let ws = weights_start, wn=weights_end_au,
+  idx_e = 1:Ne,
+  idx_i = Ne+1:Ncells
+  wdiff = wn-ws
+  # function to apply
+  diffun = function (v)
+    v=filter(!=(0),v)
+    return (isempty(v) ? 0.0 : mean(v.^2))
   end
+  diffun2 = function (v)
+    v=filter(!=(0),v)
+    return (isempty(v) ? 0.0 : mean(v))
+  end
+  # EE
+  ws_ee =  ws[idx_e,idx_e]
+  wn_ee =  wn[idx_e,idx_e]
+  wd_ee = wdiff[idx_e,idx_e]
+  # EI
+  ws_ei =  ws[idx_e,idx_i]
+  wn_ei =  wn[idx_e,idx_i]
+  wd_ei = wdiff[idx_e,idx_i]
+  # IE
+  ws_ie =  ws[idx_i,idx_e]
+  wn_ie =  wn[idx_i,idx_e]
+  wd_ie = wdiff[idx_i,idx_e]
+  # II
+  ws_ii =  ws[idx_i,idx_i]
+  wn_ii =  wn[idx_i,idx_i]
+  wd_ii = wdiff[idx_i,idx_i]
+  @info "mean squared change in E to E is $(diffun(wd_ee))"
+  @info "mean squared change in I to E is $(diffun(wd_ei))"
+  @info "mean change in I to E is $(diffun2(wd_ei))"
+  @info "mean squared change in E to I is $(diffun(wd_ie))"
+  @info "mean squared change in I to I is $(diffun(wd_ii))"
 end
 
-_ = let ws = weights_start, wn=weights_end
-  di = wn .- ws 
-  direl  = map(ww->_reldiff(ww...),zip(wn,ws))
-  # extrema(we[1:Ne,1:Ne] .- ws[1:Ne,1:Ne])
-  #@show extrema(di[Ne+1:end,1:Ne])
-  # heatmap(di[Ne+1:end,1:Ne])
-  @show extrema(di)
-  heatmap(di)
-end
-
-#bar(totalspikes)
-#histogram(totalspikes)
 
 ## ---------------------- BUILD EQUIVALENT NETWORK -----------------------------------------
 
@@ -1540,10 +1581,6 @@ ps_i = S.PSLIFConductance(nt_i,Ni)
 ## Input : super easy! Just use the matrix `stimulus` to define a function!
 
 
-function _is_in_assembly_old(neu::Integer,as::Integer)
-  asrow = view(assemblymembers,as,:)
-  return neu in asrow
-end
 function _is_in_assembly(neu_idx::Integer,as_vec::Vector{<:Integer})
   if as_vec[1] <= neu_idx <= as_vec[end]
     idx = searchsortedfirst(as_vec,neu_idx)
@@ -1632,14 +1669,43 @@ end
 
 
 ## connections 
-conn_ee = let w_ee = weights_start[1:Ne,1:Ne]
-  S.ConnGeneralIF2(sparse(w_ee))
+
+# TRIPLETS !
+conn_ee = let 
+  τplus = 16.8E-3
+	τminus = 33.7E-3
+  τx = 101.0E-3
+	τy = 125.0E-3
+	A2plus = 7.5E-10 # pairwise LTP disabled
+	A2minus = 7E-3 #small learning rate
+	A3plus = 9.3E-3
+	A3minus = 2.3E-4 # triplet LTP disabled (?)
+	wmin = 1.78 #minimum ee weight  pF
+	wmax = 21.4 #maximum ee weight pF
+  plast = S.PlasticityTriplets(τplus,τminus,τx,τy,
+      A2plus,A3plus,A2minus,A3minus,Ne,Ne;
+      plasticity_bounds=S.PlasticityBoundsLowHigh(wmin,wmax))
+  w_ee = weights_start[1:Ne,1:Ne]
+  S.ConnGeneralIF2(sparse(w_ee),plast)
 end
+
 conn_ii = let w_ii = weights_start[Ne+1:end,Ne+1:end]
 S.ConnGeneralIF2(sparse(w_ii))
 end
-conn_ei = let w_ei = weights_start[1:Ne,Ne+1:end]
-  S.ConnGeneralIF2(sparse(w_ei))
+
+# iSTDP !!!
+conn_ei = let w_ei = weights_start[1:Ne,Ne+1:end],
+	#inhibitory stdp
+  (npost,npre) = size(w_ei),  
+	tauy = 20E-3 # width of istdp curve s
+	eta = 1.0 # 1E-3 # 1.0, #istdp learning rate pA
+	r0 = 3.0 #target rate (Hz)
+  wmin = 48.7
+  wmax = 243.0
+  bounds = S.PlasticityBoundsLowHigh(wmin,wmax)
+  plast=S.PlasticityInhibitoryVogels(tauy,eta,npost,npre;
+    r_target=r0,plasticity_bounds=bounds)
+  S.ConnGeneralIF2(sparse(w_ei),plast)
 end
 conn_ie = let w_ie = weights_start[Ne+1:end,1:Ne]
   S.ConnGeneralIF2(sparse(w_ie))
@@ -1658,12 +1724,8 @@ myntw = S.RecurrentNetwork(dt,pop_e,pop_i)
 
 # record spiketimes and internal potential
 krec = 1
-#n_e_rec = 1000
-#n_i_rec = 1000
 t_wup = 0.0
 expected_rate = 15.0
-#rec_state_e = S.RecStateNow(ps_e,krec,dt,Ttot;idx_save=collect(1:n_e_rec),t_warmup=t_wup)
-#rec_state_i = S.RecStateNow(ps_i,krec,dt,Ttot;idx_save=collect(1:n_i_rec),t_warmup=t_wup)
 rec_spikes_e = S.RecSpikes(ps_e,expected_rate,Ttot;idx_save=collect(1:Ne),t_warmup=t_wup)
 rec_spikes_i = S.RecSpikes(ps_i,expected_rate,Ttot;idx_save=collect(1:Ni),t_warmup=t_wup)
 
@@ -1672,7 +1734,6 @@ rec_spikes_i = S.RecSpikes(ps_i,expected_rate,Ttot;idx_save=collect(1:Ni),t_warm
 times = (0:myntw.dt:Ttot)
 nt = length(times)
 # clean up
-#S.reset!.([rec_state_e,rec_state_i])
 S.reset!.([rec_spikes_e,rec_spikes_i])
 S.reset!.([ps_e,ps_i])
 S.reset!(conn_ei)
@@ -1681,12 +1742,27 @@ ps_e.state_now .= v_start[1:Ne]
 ps_i.state_now .= v_start[Ne+1:end]
 
 @time begin
+	dtnormalize = 20E-3 #how often to normalize rows of ee weights ms heterosynaptic plasticity
+  inormalize = round(Integer,dtnormalize/myntw.dt)
+	wee_min = 1.78 #minimum ee weight  pF
+	wee_max = 21.4 #maximum ee weight pF
+	sumwee0 = zeros(Float64,Ne) #initial summed e weight, for normalization
+	Nee = zeros(Int,Ne) #number of e->e inputs, for normalization
+	# initialisation of membrane potentials and poisson inputs
+	for cc = 1:Ne
+		for dd = 1:Ne
+			sumwee0[cc] += weights_start[cc,dd]
+			if weights_start[cc,dd] > 0
+				Nee[cc] += 1
+			end
+		end
+	end
   @showprogress 5.0 "network simulation " for (k,t) in enumerate(times)
-    #rec_state_e(t,k,myntw)
-    #rec_state_i(t,k,myntw)
     rec_spikes_e(t,k,myntw)
     rec_spikes_i(t,k,myntw)
     S.dynamics_step!(t,myntw)
+    synaptic_normalization_e_sparse!(conn_ee.weights,Ne,k,inormalize,
+            sumwee0,Nee,wee_min,wee_max)
   end
 end
 
@@ -1702,7 +1778,6 @@ rates_e = let rdic=S.get_mean_rates(rec_spikes_e,dt,Ttot)
   ret
 end
 
-##
 ##
 
 _ = let plt = plot()
@@ -1725,65 +1800,57 @@ _ = let plt = plot()
   bar!(plt,ts,psth_myidx_au_less;opacity=0.3,title="Assembly 1",lab="Aug")
 end
 
-##
-
-# _ = let plt = plot()
-#   ts,psth_i = S.get_psth(collect(1:Ni),dt_psth,rec_spikes_i;Nneurons=Ni,Ttot=Ttot)
-#   bar!(plt,ts,psth_i;title="inhibition")
-# end
-
-# ##
-
-# tbin,spks = S.binned_spikecount(25E-3,rec_spikes_e;Nneurons=Ne,Ttot=Ttot)
-
-# heatmap(tbin,1:Ne,spks)
-# ##
-
-
-#=
-rates_e = let rdic=S.get_mean_rates(rec_spikes_e,dt,Ttot)
-  ret = fill(0.0,Ne)
-  for (k,v) in pairs(rdic)
-    ret[k] = v
+## 
+_ = let ws = weights_start,
+  idx_e = 1:Ne
+  idx_i = Ne+1:Ncells
+  # function to apply
+  diffun = function (v)
+    v=filter(!=(0),v)
+    return (isempty(v) ? 0.0 : mean(v.^2))
   end
-  ret
-end
-rates_i = let rdic=S.get_mean_rates(rec_spikes_i,dt,Ttot)
-  ret = fill(0.0,Ni)
-  for (k,v) in pairs(rdic)
-    ret[k] = v
+  diffun2 = function (v)
+    v=filter(!=(0),v)
+    return (isempty(v) ? 0.0 : mean(v))
   end
-  ret
+  # EE
+  ws_ee =  ws[idx_e,idx_e]
+  wn_ee =  Matrix(conn_ee.weights)
+  wd_ee = wn_ee .- ws_ee
+  # EI
+  ws_ei =  ws[idx_e,idx_i]
+  wn_ei =  Matrix(conn_ei.weights)
+  wd_ei = wn_ei .- ws_ei
+  # IE
+  ws_ie =  ws[idx_i,idx_e]
+  wn_ie =  Matrix(conn_ie.weights)
+  wd_ie = wn_ie .- ws_ie
+  # II
+  ws_ii =  ws[idx_i,idx_i]
+  wn_ii =  Matrix(conn_ii.weights)
+  wd_ii = wn_ii .- ws_ii
+  @info "mean squared change in E to E is $(diffun(wd_ee))"
+  @info "mean squared change in I to E is $(diffun(wd_ei))"
+  @info "mean change in I to E is $(diffun2(wd_ei))"
+  @info "mean squared change in E to I is $(diffun(wd_ie))"
+  @info "mean squared change in I to I is $(diffun(wd_ii))"
 end
-
-
-_ = let plt=plot(;leg=false),
-  netest = Ne
-  scatter!(rates_e,totalrates_au[1:netest];ratio=1,
-    xlabel="Dylan's model",ylabel="Suchulz et al",title="E rates")
-  plot!(plt,identity; linewidth=2)
-end
-
-_ = let plt=plot(;leg=false),
-  ntest = Ni
-  scatter!(rates_i,totalrates_au[Ne+1:Ne+ntest];ratio=1,
-    xlabel="Dylan's model",ylabel="Suchulz et al",title="I rates")
-  plot!(plt,identity;linewidth=2)
-end
-=#
-
 
 ##
-#=
-using BenchmarkTools
-using Random
-
-@benchmark inputfun_old(t,i,300.0) setup=(t=rand(Uniform(0,300.0));i=rand(1:Ncells))
-@benchmark inputfun(t,i,300.0,$stimulus_sec,$assembly_vectors) setup=(t=rand(Uniform(0,300.0));i=rand(1:Ncells))
-
-@code_warntype inputfun(10.,3,300.0)
-
-@code_warntype S.dynamics_step!(1.0,myntw)
-
-using Cthulu
-=#
+_ = let ws = weights_start, 
+  wau = weights_end_au
+  idx_e = 1:Ne
+  idx_i = Ne+1:Ncells
+  # EI
+  ws_ei =  ws[idx_e,idx_i]
+  wn_ei =  Matrix(conn_ei.weights)
+  wd_ei = wn_ei .- ws_ei
+  wau_ei = wau[idx_e,idx_i]
+  nplot = 20_000
+  _nonzer(mat) = filter(!=(0),mat[1:nplot])
+  plt=plot()
+  scatter!(plt,_nonzer(wn_ei),_nonzer(wau_ei),
+    xlabel="Dyl",ylabel="Aug",ratio=1)
+  plot!(plt,identity)
+end
+  
