@@ -30,7 +30,7 @@ end
   wtest = S.sparse_wmat_lognorm(m,n,ptest,μtest,σtest;rowsum=123.0)
   @test all(isapprox.(sum(wtest;dims=2),-123.0;atol=0.001))
 
-  wtest = S.sparse_wmat(m,n,ptest,-0.123)
+  wtest = S.make_sparse_weights(m,n,ptest,-0.123)
   wvals = nonzeros(wtest)
   @test all( isapprox.(wvals,-0.123) )
   

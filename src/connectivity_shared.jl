@@ -109,13 +109,13 @@ function sparse_wmat_lognorm(npost::Integer,npre::Integer,
     scal=scal,noself=noself,rowsum=rowsum)
 end
 
-function sparse_wmat(npost::Integer,npre::Integer,p::Real,j_val::Real ; 
+function make_sparse_weights(npost::Integer,npre::Integer,p::Real,weigth_value::Real ; 
     scal::Float64=1.0, # final scaling
     noself::Bool=true, # no autapses ?
     rowsum::Union{Nothing,Float64}=nothing)
   make_weights=function (smat)
     vals=nonzeros(smat)
-    fill!(vals,j_val)
+    fill!(vals,weigth_value)
   end
   return _sparse_wmat(npost,npre,p,make_weights;
     scal=scal,noself=noself,rowsum=rowsum)

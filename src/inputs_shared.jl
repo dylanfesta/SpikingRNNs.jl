@@ -213,6 +213,24 @@ function local_update!(t_now::Float64,dt::Float64,ps::PSInputPoissonFtMulti)
   return nothing
 end
 
+
+# Training assemblies, let's do bjects
+struct PatternPresentation
+  Npatt::Int64
+  sequence::Vector{Int64} # sequence of patterns presented
+  times::Vector{Float64}  # t_start1,t_start2... , size is length(sequence)+1 
+  patterns::Matrix{Float64} # columns are patterns, Npatt+1 columns: last column is null pattern 
+end
+
+function (patt::PatternPresentation)(t::Real,i::Integer)
+  if patt.times[1] < t <= patt.times[end]
+    it = searchsortedfirst(patt.times,t)-1
+    return patt.patterns[i,patt.sequence[it]]
+  else
+    return patt.patterns[i,end]
+  end 
+end
+
 # helper function for
 # training with patterns with no consecutive repetitions
 function _generate_uniform_pattern_sequence(Npatterns::Integer,Ntrials::Integer)
@@ -231,21 +249,38 @@ function _generate_uniform_pattern_sequence(Npatterns::Integer,Ntrials::Integer)
   return patt_seq
 end
 
-# Define separate primitive for low-level tuning
-function _make_pattern_function(pattern_sequence::Vector{<:Integer},
-    pattern_times::Vector{R},full_patterns::Matrix{R}) where R
-  return function (t::R,i::Integer)
-    if t >= pattern_times[1]
-      it = searchsortedfirst(pattern_times,t)-1
-      if checkbounds(Bool,pattern_sequence,it)
-        idxpatt = pattern_sequence[it]
-        return full_patterns[i,idxpatt]
-      end
+function PatternPresentation(Δt::R,Ttot::R,
+      low::R,high::R,
+      npost::Integer,
+      idxs_patternpop::Vector{Vector{Int64}} ; 
+      Δt_pattern_blank::R=0.0,
+      t_pattern_delay::R=0.0) where R<:Real
+  # time vector
+  ts_pattern_start = collect(range(t_pattern_delay,Ttot;step=Δt+Δt_pattern_blank))
+  # make pattern sequence
+  Npatt = length(idxs_patternpop)
+  patt_seq = _generate_uniform_pattern_sequence(Npatt,length(ts_pattern_start)-1)
+  # must add blanks
+  if Δt_pattern_blank > 0.0
+    blank_seq = fill(Npatt+1,length(patt_seq))
+    patt_seq = [transpose(hcat(patt_seq,blank_seq))...]
+    patttimes = repeat(ts_pattern_start;inner=2)[2:end]
+    for i in 2:2:length(patttimes)
+      patttimes[i] -=Δt_pattern_blank
     end
-    return full_patterns[i,end]
-  end 
+  else
+    patttimes = ts_pattern_start
+  end
+  # Generate full scale patterns
+  fullp = fill(low,(npost,Npatt+1))
+  for (i,neuidxs) in enumerate(idxs_patternpop)
+    fullp[neuidxs,i] .= high
+  end
+  # generate the function and return it
+  return PatternPresentation(Npatt,patt_seq,patttimes,fullp)
 end
 
+#=
 # but is it a functor ?
 function pattern_functor(Δt::R,Ttot::R,
     low::R,high::R,
@@ -288,7 +323,7 @@ function pattern_functor_upperlimit(low::R,high::R,
     return theref[i]
   end
 end
-
+=#
 
 ## generalize a little on the Inputs
 
