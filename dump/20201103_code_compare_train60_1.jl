@@ -385,7 +385,7 @@ Ncells = Ne + Ni
 # Set integration timestep
 dt 	= 0.1 #integration timestep in ms
 
-ifiSTDP = false # true 		#  include inhibitory plasticity
+ifiSTDP = true # true 		#  include inhibitory plasticity
 ifwadapt = false	#  consider AdEx or Ex IF neurons
 
 # --------------------- generate the stimulus --------------------------------------------
@@ -650,21 +650,22 @@ function synaptic_normalization_e!(weights::Matrix{Float64},
   return nothing
 end
 
-function synaptic_normalization_e_sparse!(sparseweights_ee::SparseMatrixCSC,
+
+function synaptic_normalization_e_sparse!(sparseweights::SparseMatrixCSC,
     Ne::Integer,k::Integer,inormalize::Integer,sums0::Vector{Float64},
     npres::Vector{<:Integer},wmin::Real,wmax::Real)
   if mod(k,inormalize) == 0 
-    for cc = 1:Ne
-      # sums over incoming EE connections (pre subtractive normalization)
-      sumwee = sum(view(sparseweights_ee,cc,:))
-      for dd = 1:Ne
-        if weights[cc,dd] > 0.
-          weights[cc,dd] -= (sumwee-sums0[cc])/npres[cc]
-          weights[cc,dd] = hardbounds(weights[cc,dd],wmin,wmax)
-        end # if
-      end # dd for
-    end # cc for
-  end #end normalization
+    sumswee = let s = Vector{Float64}(undef,Ne)
+      sum!(s,sparseweights)
+    end
+    nzw = nonzeros(sparseweights) # sparse magik !
+    rows = rowvals(sparseweights)
+    for k in eachindex(nzw) 
+      row = rows[k]
+      newval = nzw[k] - (sumswee[row] - sums0[row])/npres[row]
+      nzw[k] = hardbounds(newval,wmin,wmax)
+    end
+  end
   return nothing
 end
 
@@ -1155,9 +1156,9 @@ function runsimulation_inhibtuning(ifiSTDP,ifwadapt,stimparams,stimulus::Array{F
 
 						# triplet accumulators
 						r1[cc] += -dt*r1[cc]/tau_p # exponential decay of all
-			            r2[cc] += -dt*r2[cc]/tau_x
+			      r2[cc] += -dt*r2[cc]/tau_x
 						o1[cc] += -dt*o1[cc]/tau_m
-			            o2[cc] += -dt*o2[cc]/tau_y
+			      o2[cc] += -dt*o2[cc]/tau_y
 					end
 
 					if t > (lastSpike[cc] + taurefrac) #not in refractory period
@@ -1237,7 +1238,7 @@ function runsimulation_inhibtuning(ifiSTDP,ifwadapt,stimparams,stimulus::Array{F
 
 					if ifiSTDP # select if iSTDP
 						#istdp
-						if spiked[cc] && (t > stdpdelay)
+						if spiked[cc] # && (t > stdpdelay)
 							if cc <= Ne #excitatory neuron fired, potentiate i inputs
 								for dd = (Ne+1):Ncells
 									if weights[dd,cc] == 0.
@@ -1269,19 +1270,20 @@ function runsimulation_inhibtuning(ifiSTDP,ifwadapt,stimparams,stimulus::Array{F
 						end #end istdp
 					end # ifiSTDP
 
-					if tripletrule
+				if tripletrule
 
 					#triplet, ltd component
           # WARNING : removed pretrain for test purposes
 					if spiked[cc] &&  (cc<=Ne) #(t > stdpdelay) && (cc <= Ne)
-						r1[cc] = r1[cc] + 1 # incrememt r1 before weight update
+						# r1[cc] = r1[cc] + 1 # incrememt r1 before weight update
+						o1[cc] = o1[cc] + 1 # incrememt o1 before weight update
 						for dd = 1:Ne #depress weights from cc to all its postsyn cells
 							# cc = pre dd = post
 							if weights[cc,dd] == 0. # ignore connections that were not establishe in the beginning
 								continue
 							end
 
-			                weights[cc,dd] -= o1[dd]*(A_2m + A_3m*r2[cc])
+			        weights[cc,dd] -= o1[dd]*(A_2m + A_3m*r2[cc])
 
 							if weights[cc,dd] < Jeemin
 								weights[cc,dd] = Jeemin
@@ -1294,7 +1296,8 @@ function runsimulation_inhibtuning(ifiSTDP,ifwadapt,stimparams,stimulus::Array{F
 					#triplet, ltp component
           # WARNING : removed pretrain for test purposes
 					if spiked[cc] &&  (cc<=Ne) #(t > stdpdelay) && (cc <= Ne)
-						o1[cc] = o1[cc] + 1 # incrememt r1 before weight update
+						#o1[cc] = o1[cc] + 1 # incrememt r1 before weight update
+						r1[cc] = r1[cc] + 1 # incrememt r1 before weight update
 						# cc = post dd = pre
 						for dd = 1:Ne #increase weights from cc to all its presyn cells dd
 							if weights[dd,cc] == 0.
@@ -1367,7 +1370,7 @@ function runsimulation_inhibtuning(ifiSTDP,ifwadapt,stimparams,stimulus::Array{F
 
 						eta_old = eta
 						eta = adjustfactorinhib*eta_old
-						println("new eta iSTDP",eta)
+						println("new eta iSTDP ",eta)
             #=
 						if T > 1
 							h5write(savefile, "params/TripletTausAs_stim", [tau_p,tau_m, tau_x,tau_y , A_2p , A_2m, A_3p, A_3m])
@@ -1408,7 +1411,7 @@ end
 
 weights_start = permutedims(weights)
 
-const Ttot = 0.5
+const Ttot = 8.0
 const Ttot_ms = Int64(Ttot*1E3)
 
 v_start = let vreset = -60.0 , vth0=-52.0
@@ -1674,8 +1677,8 @@ end
 conn_ee = let 
   τplus = 16.8E-3
 	τminus = 33.7E-3
-  τx = 101.0E-3
-	τy = 125.0E-3
+  τx = 101E-3
+	τy = 125E-3
 	A2plus = 7.5E-10 # pairwise LTP disabled
 	A2minus = 7E-3 #small learning rate
 	A3plus = 9.3E-3
@@ -1703,7 +1706,7 @@ conn_ei = let w_ei = weights_start[1:Ne,Ne+1:end],
   wmin = 48.7
   wmax = 243.0
   bounds = S.PlasticityBoundsLowHigh(wmin,wmax)
-  plast=S.PlasticityInhibitoryVogels(tauy,eta,npost,npre;
+  plast = S.PlasticityInhibitoryVogels(tauy,eta,npost,npre;
     r_target=r0,plasticity_bounds=bounds)
   S.ConnGeneralIF2(sparse(w_ei),plast)
 end
@@ -1751,7 +1754,7 @@ ps_i.state_now .= v_start[Ne+1:end]
 	# initialisation of membrane potentials and poisson inputs
 	for cc = 1:Ne
 		for dd = 1:Ne
-			sumwee0[cc] += weights_start[cc,dd]
+			sumwee0[cc] += weights_start[dd,cc]
 			if weights_start[cc,dd] > 0
 				Nee[cc] += 1
 			end
@@ -1766,8 +1769,6 @@ ps_i.state_now .= v_start[Ne+1:end]
   end
 end
 
-# S.add_fake_spikes!(1.0vth_e,rec_state_e,rec_spikes_e)
-# S.add_fake_spikes!(0.0,rec_state_i,rec_spikes_i)
 ##
 
 rates_e = let rdic=S.get_mean_rates(rec_spikes_e,dt,Ttot)
@@ -1846,11 +1847,28 @@ _ = let ws = weights_start,
   wn_ei =  Matrix(conn_ei.weights)
   wd_ei = wn_ei .- ws_ei
   wau_ei = wau[idx_e,idx_i]
-  nplot = 20_000
+  nplot = 30_000
   _nonzer(mat) = filter(!=(0),mat[1:nplot])
   plt=plot()
   scatter!(plt,_nonzer(wn_ei),_nonzer(wau_ei),
-    xlabel="Dyl",ylabel="Aug",ratio=1)
+    xlabel="Dyl",ylabel="Aug",ratio=1,title="I to E connections")
   plot!(plt,identity)
 end
-  
+ 
+_ = let ws = weights_start, 
+  wau = weights_end_au
+  idx_e = 1:Ne
+  idx_i = Ne+1:Ncells
+  # EI
+  ws_ee =  ws[idx_e,idx_e]
+  wn_ee =  Matrix(conn_ee.weights)
+  wd_ee = wn_ee .- ws_ee
+  wau_ee = wau[idx_e,idx_e]
+  nplot = 30_000
+  _nonzer(mat) = filter(!=(0),mat[1:nplot])
+  plt=plot()
+  scatter!(plt,_nonzer(wn_ee),_nonzer(wau_ee),
+    xlabel="Dyl",ylabel="Aug",ratio=1,title="E to E connections")
+  plot!(plt,identity)
+end
+ 
