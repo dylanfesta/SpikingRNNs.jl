@@ -7,18 +7,18 @@ struct RecStateNow{PS<:PopulationState}
   isdone::Ref{Bool}
   krec::Int64 # record every k timesteps
   nrecords::Int64 # max recorded steps
-  k_warmup::Int64 # starts to record only after this 
+  k_start::Int64 # starts to record only after this 
   idx_save::Vector{Int64} # which neurons to save. empty -> ALL neurons
   times::Vector{Float64}
   state_now::Matrix{Float64}
   function RecStateNow(ps::PS,everyk::Integer,dt::Float64,Tend::Float64; 
       idx_save::Vector{Int64}=Int64[],Tstart::Float64=0.0) where PS
-    k_warmup = floor(Int64,Tstart/dt)
+    k_start = floor(Int64,Tstart/dt)
     nrecs = floor(Int64,(Tend-Tstart)/(everyk*dt))
     times = fill(NaN,nrecs)
     nneus = isempty(idx_save) ? nneurons(ps) : length(idx_save)
     states = fill(NaN,nneus,nrecs)
-    return new{PS}(ps,Ref(false),everyk,nrecs,k_warmup,idx_save,times,states)
+    return new{PS}(ps,Ref(false),everyk,nrecs,k_start,idx_save,times,states)
   end
 end
 
@@ -31,7 +31,7 @@ end
 
 function (rec::RecStateNow)(t::Float64,k::Integer,::AbstractNetwork)
   # I assume k starts from 1, which corresponds to t=0
-  kless,_rem=divrem((k-1-rec.k_warmup),rec.krec)
+  kless,_rem=divrem((k-1-rec.k_start),rec.krec)
   kless += 1 # vector index must start from 1
   if (_rem != 0) || kless<=0 || rec.isdone[]
     return nothing
@@ -417,7 +417,7 @@ struct RecWeightsFull
   nrecords::Int64 # max recorded steps
   k_start::Int64 # starts to record only after this 
   times::Vector{Float64}
-  weights_now::Matrix{Float64}
+  weights_now:: Vector{SparseMatrixCSC{Float64,Int64}}
   function RecWeightsFull(conn::Connection,
       everyk::Integer,dt::Float64,Tend::Float64; 
       Tstart::Float64=0.0)
@@ -452,7 +452,7 @@ function (rec::RecWeightsFull)(t::Float64,k::Integer,::AbstractNetwork)
     rec.isdone[]=true
     return nothing
   end
-  rec.weights_now[:,kless] .= copy(rec.weights)
+  rec.weights_now[kless] = copy(rec.weights)
   rec.times[kless] = t
   return nothing
 end
