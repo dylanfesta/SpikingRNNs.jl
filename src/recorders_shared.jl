@@ -96,8 +96,8 @@ struct RecSpikes{PS<:PopulationState}
   Tstart::Float64 # starts to record only after this time 
   Tend::Float64  # max recorded time
   idx_save::Vector{Int64} # which neurons to save. empty -> ALL neurons
-  spiketimes::Vector{Float64}
-  spikeneurons::Vector{Int64}
+  spiketimes::Vector{Float32} # resolution 1E-7 , still below dt
+  spikeneurons::Vector{UInt64} # max is about 60_000 neurons, which is plenty
   function RecSpikes(ps::PS, expected_rate::Float64,Tend::Float64;
       idx_save::Vector{Int64}=Int64[],Tstart::Float64=0.0,
       nrecmax::Int64 = 10_000_000) where PS
@@ -108,8 +108,8 @@ struct RecSpikes{PS<:PopulationState}
     end
     nrecs = ceil(Integer,nneus * expected_rate * (Tend-Tstart))
     @assert nrecs <= nrecmax "Saving data might require too much memory!"
-    spiketimes = fill(NaN,nrecs)
-    spikeneurons = fill(-1,nrecs)
+    spiketimes = fill(NaN32,nrecs)
+    spikeneurons = fill(UInt16(0),nrecs) # no neuron should be 0
     return new{PS}(ps,Ref(false),nrecs,Ref(1),Tstart,Tend,idx_save,
       spiketimes,spikeneurons)
   end
@@ -117,8 +117,8 @@ end
 function reset!(rec::RecSpikes)
   rec.k_now[]=1
   rec.isdone[]=false
-  fill!(rec.spikeneurons,-1)
-  fill!(rec.spiketimes,NaN)
+  fill!(rec.spikeneurons,UInt16(0))
+  fill!(rec.spiketimes,NaN32)
   return nothing
 end
 
@@ -139,8 +139,8 @@ function (rec::RecSpikes)(t::Float64,::Integer,::AbstractNetwork)
   for (neu,isfiring) in enumerate(rec.ps.isfiring)
     if isfiring && (read_all_neus || _in_sorted(rec.idx_save,neu))
       know = rec.k_now[]
-      rec.spiketimes[know] = t
-      rec.spikeneurons[know] = neu
+      rec.spiketimes[know] = Float32(t)
+      rec.spikeneurons[know] = UInt16(neu)
       rec.k_now[] = know+1
     end
   end
@@ -148,8 +148,8 @@ function (rec::RecSpikes)(t::Float64,::Integer,::AbstractNetwork)
 end
 
 function get_spiketimes_spikeneurons(rec::RecSpikes)
-  _idx = @. !isnan(rec.spiketimes)
-  return   rec.spiketimes[_idx],rec.spikeneurons[_idx]
+  _idx = findall(isfinite,rec.spiketimes)
+  return Float64.(rec.spiketimes[_idx]),Int64.(rec.spikeneurons[_idx])
 end
 function get_spiketimes_dictionary(rec::RecSpikes)
   spk_t,spk_neu = get_spiketimes_spikeneurons(rec)
@@ -197,35 +197,10 @@ function add_fake_spikes!(v_spike::R,
   return nothing
 end
 
-function add_fake_spikes_old!(v_spike::R,voltage_times::Vector{R},
-    voltage_traces::Matrix{R},
-    spiketimes::Vector{R},
-    spikeneurons::Vector{I},
-    idx_save::Vector{I}) where {R,I}
-  c=1
-  if isempty(idx_save)
-    idx_save = collect(1:size(voltage_traces,1))
-  end
-  for (k,t) in enumerate(voltage_times)
-    if checkbounds(Bool,spiketimes,c)
-      next_spike = spiketimes[c]
-      if t >= next_spike
-        idx_neu = findfirst(==(spikeneurons[c]),idx_save)
-        if !isnothing(idx_neu)
-          voltage_traces[idx_neu,k] = v_spike
-        end
-        c+=1
-      end
-    end
-  end
-  return nothing
-end
-
-
-
 function add_fake_spikes!(v_spike::Float64,rtrace::RecStateNow,rspk::RecSpikes)
+  spiketimes,spikeneurons = get_spiketimes_spikeneurons(rspk)
   return add_fake_spikes!(v_spike,rtrace.times,rtrace.state_now,
-    rspk.spiketimes,rspk.spikeneurons,rtrace.idx_save)
+    spiketimes,spikeneurons,rtrace.idx_save)
 end
 
 ##
