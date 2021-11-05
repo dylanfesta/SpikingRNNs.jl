@@ -129,9 +129,12 @@ struct RecSpikesContent
   idx_save::Vector{Int64} # which neurons to save. empty -> ALL neurons
   spiketimes::Vector{Float32} # resolution 1E-7 , still below dt
   spikeneurons::Vector{UInt64} # max is about 60_000 neurons, which is plenty
-  function RecSpikesContent(r::RecCountSpikes)
+  function RecSpikesContent(r::RecSpikes)
     new(r.Tstart,r.Tend,r.idx_save,r.spiketimes,r.spikeneurons)
   end
+end
+function get_content(rec::RecSpikes)
+  return RecSpikesContent(rec)
 end
 
 
@@ -296,37 +299,9 @@ function raster_png(dt::Float64,rspk::Union{RecSpikes,RecSpikesContent};
 end
 
 
-#=
-
-function raster_png(sd::SpontaneousData,session_id::String;
-    cells::Union{Nothing,Vector{Int64}}=nothing,
-    spike_height::Int64=3, df_rank::Union{Nothing,DataFrame}=nothing)
-  if isnothing(cells)
-    dat = filter(r->r.session_id==session_id,sd.cells)
-  else
-    dat = filter(r->(r.session_id==session_id) && (r.cell in cells),sd.cells)
-  end
-  if isnothing(df_rank)
-    sort!(dat,:cell)
-  else
-    dat = innerjoin(dat,select(df_rank,:cell,:rank); on=:cell)
-    sort!(dat,:rank)
-  end
-  ret = Vector{Vector{RGB}}(undef,0)
-  for r in eachrow(dat)
-    # get rasters of corresponding cells
-    rast = @. RGB(Gray(! r.raster))
-    push!(ret,rast)
-  end
-  ret = permutedims(hcat(ret...))
-  if spike_height > 1
-    ret = repeat(ret;inner=(spike_height,1))
-  end
-  return ret
-end
-=#
-
 # record weights
+# might be useful when testing plasticity at small scale,
+# otherwise use RecWeightsFull, below
 
 struct RecWeights
   weights::SparseMatrixCSC{Float64,Int64}
@@ -428,10 +403,15 @@ Base.length(rec::RecWeightsFull) = length(rec.times)
 struct RecWeightsFullContent
   times::Vector{Float64}
   weights_now::Vector{SparseMatrixCSC{Float64,Int64}}
-  function RecWeightsFullContent(r::RecCountSpikes)
+  function RecWeightsFullContent(r::RecWeightsFull)
     new(r.times,r.weights_now)
   end
 end
+function get_content(rec::RecWeightsFull)
+  return RecWeightsFullContent(rec)
+end
+
+
 
 function reset!(rec::RecWeightsFull)
   fill!(rec.times,NaN)
