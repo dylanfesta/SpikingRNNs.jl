@@ -213,14 +213,24 @@ function local_update!(t_now::Float64,dt::Float64,ps::PSInputPoissonFtMulti)
   return nothing
 end
 
-
-# Training assemblies, let's do bjects
+# Training assemblies, let's do objects
 struct PatternPresentation
   Npatt::Int64
   sequence::Vector{Int64} # sequence of patterns presented
   times::Vector{Float64}  # t_start1,t_start2... , size is length(sequence)+1 
   patterns::Matrix{Float64} # columns are patterns, Npatt+1 columns: last column is null pattern 
 end
+struct PatternPresentationContent # :-(  just to save it ... 
+  Npatt::Int64
+  sequence::Vector{Int64} 
+  times::Vector{Float64} 
+  patterns::Matrix{Float64}
+  function PatternPresentationContent(p::PatternPresentation)
+    new(p.Npatt,p.sequence,p.times,p.patterns)
+  end
+end
+get_content(p::PatternPresentation) = PatternPresentationContent(p)
+
 
 function (patt::PatternPresentation)(t::Real,i::Integer)
   if patt.times[1] < t <= patt.times[end]
