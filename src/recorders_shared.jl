@@ -130,7 +130,8 @@ struct RecSpikesContent
   spiketimes::Vector{Float32} # resolution 1E-7 , still below dt
   spikeneurons::Vector{UInt64} # max is about 60_000 neurons, which is plenty
   function RecSpikesContent(r::RecSpikes)
-    new(r.Tstart,r.Tend,r.idx_save,r.spiketimes,r.spikeneurons)
+    to_keep = findall(isfinite,r.spiketimes) 
+    new(r.Tstart,r.Tend,r.idx_save,r.spiketimes[to_keep],r.spikeneurons[to_keep])
   end
 end
 function get_content(rec::RecSpikes)
