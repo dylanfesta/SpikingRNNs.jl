@@ -11,10 +11,10 @@ struct RecStateNow{PS<:PopulationState}
   idx_save::Vector{Int64} # which neurons to save. empty -> ALL neurons
   times::Vector{Float64}
   state_now::Matrix{Float64}
-  function RecStateNow(ps::PS,everyk::Integer,dt::Float64,Tmax::Float64; 
-      idx_save::Vector{Int64}=Int64[],t_warmup::Float64=0.0) where PS
-    k_warmup = floor(Int64,t_warmup/dt)
-    nrecs = floor(Int64,(Tmax-t_warmup)/(everyk*dt))
+  function RecStateNow(ps::PS,everyk::Integer,dt::Float64,Tend::Float64; 
+      idx_save::Vector{Int64}=Int64[],Tstart::Float64=0.0) where PS
+    k_warmup = floor(Int64,Tstart/dt)
+    nrecs = floor(Int64,(Tend-Tstart)/(everyk*dt))
     times = fill(NaN,nrecs)
     nneus = isempty(idx_save) ? nneurons(ps) : length(idx_save)
     states = fill(NaN,nneus,nrecs)
@@ -93,19 +93,24 @@ struct RecSpikes{PS<:PopulationState}
   isdone::Ref{Bool}
   nrecords::Int64 # max recorded steps
   k_now::Ref{Int64} # current spike counter
-  t_warmup::Float64 # starts to record only after this time 
+  Tstart::Float64 # starts to record only after this time 
+  Tend::Float64  # max recorded time
   idx_save::Vector{Int64} # which neurons to save. empty -> ALL neurons
   spiketimes::Vector{Float64}
   spikeneurons::Vector{Int64}
-  function RecSpikes(ps::PS, expected_rate::Float64,Tmax::Float64;
-      idx_save::Vector{Int64}=Int64[],t_warmup::Float64=0.0,
+  function RecSpikes(ps::PS, expected_rate::Float64,Tend::Float64;
+      idx_save::Vector{Int64}=Int64[],Tstart::Float64=0.0,
       nrecmax::Int64 = 10_000_000) where PS
+    @assert (isempty(idx_save)  || issorted(idx_save))
     nneus = isempty(idx_save) ? nneurons(ps) : length(idx_save)
-    nrecs = ceil(Integer,nneus * expected_rate * (Tmax-t_warmup))
+    if nneus == length(idx_save)  # if 1:Ntot, no need to keep it
+      idx_save = Int64[]
+    end
+    nrecs = ceil(Integer,nneus * expected_rate * (Tend-Tstart))
     @assert nrecs <= nrecmax "Saving data might require too much memory!"
     spiketimes = fill(NaN,nrecs)
     spikeneurons = fill(-1,nrecs)
-    return new{PS}(ps,Ref(false),nrecs,Ref(1),t_warmup,idx_save,
+    return new{PS}(ps,Ref(false),nrecs,Ref(1),Tstart,Tend,idx_save,
       spiketimes,spikeneurons)
   end
 end
@@ -116,19 +121,27 @@ function reset!(rec::RecSpikes)
   fill!(rec.spiketimes,NaN)
   return nothing
 end
-function (rec::RecSpikes)(t::Float64,k::Integer,ntw::AbstractNetwork)
-  if t<rec.t_warmup || rec.isdone[]
+
+# little helper function
+function _in_sorted(v::Vector{I},el::I) where I
+  return !isempty(searchsorted(v,el))
+end
+
+function (rec::RecSpikes)(t::Float64,::Integer,::AbstractNetwork)
+  if t < rec.Tstart || rec.isdone[]
     return nothing
   end
-  if rec.k_now[] > rec.nrecords 
+  if (rec.k_now[] > rec.nrecords) || (t > rec.Tend ) 
     rec.isdone[]=true
     return nothing
   end
-  for i in findall(rec.ps.isfiring)
-    if  (isempty(rec.idx_save) || (i in rec.idx_save) ) && (rec.k_now[] < rec.nrecords)
-      rec.spiketimes[rec.k_now[]] = t
-      rec.spikeneurons[rec.k_now[]] = i
-      rec.k_now[] += 1
+  read_all_neus = isempty(rec.idx_save)
+  for (neu,isfiring) in enumerate(rec.ps.isfiring)
+    if isfiring && (read_all_neus || _in_sorted(rec.idx_save,neu))
+      know = rec.k_now[]
+      rec.spiketimes[know] = t
+      rec.spikeneurons[know] = neu
+      rec.k_now[] = know+1
     end
   end
   return nothing
@@ -149,7 +162,7 @@ function get_spiketimes_dictionary(rec::RecSpikes)
 end
 
 function get_mean_rates(rec::RecSpikes,dt::Float64,Ttot::Float64)
-  ΔT = Ttot-rec.t_warmup
+  ΔT = Ttot-rec.Tstart
   dict = get_spiketimes_dictionary(rec)
   ret = Dict{Int64,Float64}()
   for (neu,spks) in pairs(dict)
@@ -257,23 +270,23 @@ end
 
 function raster_png(dt::Float64,rspk::RecSpikes ;
     Nneurons::Int64=-1,
-    Ttot::Float64=0.0,spike_height::Int64=5,
+    Tend::Float64=0.0,spike_height::Int64=5,
     reorder::Vector{Int64}=Int64[])
   spkt,spkn = get_spiketimes_spikeneurons(rspk)
-  if isempty(spkn) && (Nneurons==-1 || Ttot==0.0)
+  if isempty(spkn) && (Nneurons==-1 || Tend==0.0)
     error("""
      No spikes recorded ! 
     Impossible to determine the image size. 
-    Please set the parameters `Nneurons` and `Ttot`
+    Please set the parameters `Nneurons` and `Tend`
     """)
   end
-  Ttot = let maxt =  isempty(spkt) ? Ttot : maximum(spkt)+dt
-    max(Ttot, maxt)
+  Tend = let maxt =  isempty(spkt) ? Tend : maximum(spkt)+dt
+    max(Tend, maxt)
   end
   Nneurons = let maxn = isempty(spkn) ? Nneurons : maximum(spkn)
      max(Nneurons,maxn)
   end
-  tbins = rspk.t_warmup-eps(rspk.t_warmup):dt:Ttot
+  tbins = rspk.Tstart-eps(rspk.Tstart):dt:Tend
   ntimes = length(tbins)-1
   rasterbin = falses(Nneurons,ntimes)
   for (neu,t) in zip(spkn,spkt)
@@ -337,12 +350,12 @@ struct RecWeights
   function RecWeights(conn::Connection,
       everyk::Integer,dt::Float64,Tmax::Float64; 
       idx_save::Vector{CartesianIndex{2}}=CartesianIndex{2}[],
-      t_warmup::Float64=0.0)
+      Tstart::Float64=0.0)
     if iszero(n_plasticity_rules(conn))
       @warn "The connection has no plasticity, there is no need of tracking it!"
     end
-    k_warmup = floor(Int64,t_warmup/dt)
-    nrecs = floor(Int64,(Tmax-t_warmup)/(everyk*dt))
+    k_warmup = floor(Int64,Tstart/dt)
+    nrecs = floor(Int64,(Tmax-Tstart)/(everyk*dt))
     times = fill(NaN,nrecs)
     if isempty(idx_save)
       x,y,_ = findnz(conn.weights)
@@ -402,20 +415,20 @@ struct RecWeightsFull
   isdone::Ref{Bool}
   krec::Int64 # record every k timesteps
   nrecords::Int64 # max recorded steps
-  k_warmup::Int64 # starts to record only after this 
+  k_start::Int64 # starts to record only after this 
   times::Vector{Float64}
   weights_now::Matrix{Float64}
   function RecWeightsFull(conn::Connection,
-      everyk::Integer,dt::Float64,Tmax::Float64; 
-      t_warmup::Float64=0.0)
+      everyk::Integer,dt::Float64,Tend::Float64; 
+      Tstart::Float64=0.0)
     if iszero(n_plasticity_rules(conn))
       @warn "The connection has no plasticity, there is no need of tracking it!"
     end
-    k_warmup = floor(Int64,t_warmup/dt)
-    nrecs = floor(Int64,(Tmax-t_warmup)/(everyk*dt))
+    k_start = floor(Int64,Tstart/dt)
+    nrecs = floor(Int64,(Tend-Tstart)/(everyk*dt))
     times = fill(NaN,nrecs)
     weights_now = Vector{SparseMatrixCSC{Float64,Int64}}(undef,nrecs)
-    return new(conn.weights,Ref(false),everyk,nrecs,k_warmup,times,weights_now)
+    return new(conn.weights,Ref(false),everyk,nrecs,k_start,times,weights_now)
   end
 end
 
@@ -430,7 +443,7 @@ end
 
 function (rec::RecWeightsFull)(t::Float64,k::Integer,::AbstractNetwork)
   # I assume k starts from 1, which corresponds to t=0
-  kless,_rem=divrem((k-1-rec.k_warmup),rec.krec)
+  kless,_rem=divrem((k-rec.k_start-1),rec.krec)
   kless += 1 # vector index must start from 1
   if (_rem != 0) || kless<=0 || rec.isdone[]
     return nothing

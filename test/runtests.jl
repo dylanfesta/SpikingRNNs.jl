@@ -318,7 +318,7 @@ end
   # record spiketimes and internal potential
   n_e_rec = Ne
   t_wup = 0.0
-  rec_spikes_e = S.RecSpikes(ps_e,500.0,Ttot;idx_save=collect(1:n_e_rec),t_warmup=t_wup)
+  rec_spikes_e = S.RecSpikes(ps_e,500.0,Ttot;idx_save=collect(1:n_e_rec),Tstart=t_wup)
 
   times = (0:ntw.dt:Ttot)
   nt = length(times)
@@ -353,7 +353,7 @@ end
   pop_e = S.Population(ps_e,(S.FakeConnection(),ps_in))
   ntw = S.RecurrentNetwork(dt,pop_e)
 
-  rec_spikes_e = S.RecSpikes(ps_e,500.0,Ttot;idx_save=collect(1:n_e_rec),t_warmup=t_wup)
+  rec_spikes_e = S.RecSpikes(ps_e,500.0,Ttot;idx_save=collect(1:n_e_rec),Tstart=t_wup)
 
   S.reset!.([ps_e,ps_in,rec_spikes_e])
   # initial conditions

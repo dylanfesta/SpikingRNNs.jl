@@ -189,3 +189,18 @@ end
 @benchmark mapreduce(idx->vec[idx],+,idxs) setup=(vec=randn(n);idxs=(1:n_sum))
 ##
 @benchmark mysumloop(vec,idxs) setup=(vec=randn(n);idxs=(1:n_sum))
+
+##
+# bonus, finding element in array
+
+neus = collect(1:600)
+
+function is_in_all1(i::I,neus::Vector{I}) where I
+  return i in neus
+end
+function is_in_all2(i::I,neus::Vector{I}) where I
+  return !isempty(searchsorted(neus,i))
+end
+
+@benchmark is_in_all1(i,$neus) setup=(i=rand(1:600))
+@benchmark is_in_all2(i,$neus) setup=(i=rand(1:600))
