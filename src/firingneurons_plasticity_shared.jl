@@ -21,9 +21,8 @@ function (plb::PlasticityBoundsLowHigh)(w::R,Δw::R) where R
 end
 
 # no plasticity, nothing to do
-@inline function plasticity_update!(t_now::Real,dt::Real,
-     pspost::PSSpikingType,conn::Connection,pspre::PSSpikingType,
-     plast::NoPlasticity)
+@inline function plasticity_update!(::Real,::Real,
+     ::PSSpikingType,::Connection,::PSSpikingType,::NoPlasticity)
   return nothing
 end
 
@@ -35,10 +34,10 @@ struct PairSTDP <: PlasticityRule
   Aminus::Float64
   o::Vector{Float64} # pOst
   r::Vector{Float64} # pRe
-  function PairSTDP(τplus,τminus,
-      Aplus,Aminus,n_post,n_pre)
-    new(τplus,τminus,Aplus,Aminus,
-      zeros(n_post),zeros(n_pre))
+  bounds::PlasticityBounds
+  function PairSTDP(τplus,τminus,Aplus,Aminus,n_post,n_pre;
+       plasticity_bounds=PlasticityBoundsNonnegative())
+    new(τplus,τminus,Aplus,Aminus,zeros(n_post),zeros(n_pre),plasticity_bounds)
   end
 end
 
@@ -48,7 +47,7 @@ function reset!(pl::PairSTDP)
   return nothing
 end
 
-function plasticity_update!(t_now::Real,dt::Real,
+function plasticity_update!(::Real,dt::Real,
      pspost::PSSpikingType,conn::Connection,pspre::PSSpikingType,
      plast::PairSTDP)
   # elements of sparse matrix that I need
@@ -63,7 +62,7 @@ function plasticity_update!(t_now::Real,dt::Real,
 		_posts_nz = nzrange(conn.weights,j_pre) # indexes of corresponding pre in nz space
 		@inbounds for _pnz in _posts_nz
       ipost = row_idxs[_pnz]
-      Δw = plast.o[ipost]*plast.Aminus
+      Δw = -plast.o[ipost]*plast.Aminus
       weightsnz[_pnz] = max(0.0,weightsnz[_pnz]-Δw)
     end
   end

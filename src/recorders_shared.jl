@@ -122,6 +122,19 @@ function reset!(rec::RecSpikes)
   return nothing
 end
 
+# easy to save wrapper
+struct RecSpikesContent
+  Tstart::Float64 # starts to record only after this time 
+  Tend::Float64  # max recorded time
+  idx_save::Vector{Int64} # which neurons to save. empty -> ALL neurons
+  spiketimes::Vector{Float32} # resolution 1E-7 , still below dt
+  spikeneurons::Vector{UInt64} # max is about 60_000 neurons, which is plenty
+  function RecSpikesContent(r::RecCountSpikes)
+    new(r.Tstart,r.Tend,r.idx_save,r.spiketimes,r.spikeneurons)
+  end
+end
+
+
 # little helper function
 function _in_sorted(v::Vector{I},el::I) where I
   return !isempty(searchsorted(v,el))
@@ -147,11 +160,12 @@ function (rec::RecSpikes)(t::Float64,::Integer,::AbstractNetwork)
   return nothing
 end
 
-function get_spiketimes_spikeneurons(rec::RecSpikes)
+function get_spiketimes_spikeneurons(rec::Union{RecSpikes,RecSpikesContent})
   _idx = findall(isfinite,rec.spiketimes)
   return Float64.(rec.spiketimes[_idx]),Int64.(rec.spikeneurons[_idx])
 end
-function get_spiketimes_dictionary(rec::RecSpikes)
+
+function get_spiketimes_dictionary(rec::Union{RecSpikes,RecSpikesContent})
   spk_t,spk_neu = get_spiketimes_spikeneurons(rec)
   ret=Dict{Int64,Vector{Float64}}()
   for neu in unique(spk_neu)
@@ -161,8 +175,9 @@ function get_spiketimes_dictionary(rec::RecSpikes)
   return ret
 end
 
-function get_mean_rates(rec::RecSpikes,dt::Float64,Ttot::Float64)
-  ΔT = Ttot-rec.Tstart
+function get_mean_rates(rec::Union{RecSpikes,RecSpikesContent},
+     ::Float64,Tend::Float64)
+  ΔT = Tend-rec.Tstart
   dict = get_spiketimes_dictionary(rec)
   ret = Dict{Int64,Float64}()
   for (neu,spks) in pairs(dict)
@@ -197,7 +212,7 @@ function add_fake_spikes!(v_spike::R,
   return nothing
 end
 
-function add_fake_spikes!(v_spike::Float64,rtrace::RecStateNow,rspk::RecSpikes)
+function add_fake_spikes!(v_spike::Float64,rtrace::RecStateNow,rspk::Union{RecSpikes,RecSpikesContent})
   spiketimes,spikeneurons = get_spiketimes_spikeneurons(rspk)
   return add_fake_spikes!(v_spike,rtrace.times,rtrace.state_now,
     spiketimes,spikeneurons,rtrace.idx_save)
@@ -205,7 +220,7 @@ end
 
 ##
 
-function binned_spikecount(dt::Float64,rspk::RecSpikes;
+function binned_spikecount(dt::Float64,rspk::Union{RecSpikes,RecSpikesContent};
     Nneurons::Int64=-1,Ttot::Float64=0.0)
   return binned_spikecount(dt,get_spiketimes_spikeneurons(rspk)...;
     Nneurons=Nneurons,Ttot=Ttot)
@@ -230,7 +245,7 @@ end
 # simular to the above, but averages over selected neurons
 # and returns a value in Hz
 function get_psth(idxs_neu::AbstractVector{<:Integer},
-    dt::Float64,rspk::RecSpikes;
+    dt::Float64,rspk::Union{RecSpikes,RecSpikesContent};
     Nneurons::Int64=-1,Ttot::Float64=0.0)
   return get_psth(idxs_neu,dt,get_spiketimes_spikeneurons(rspk)...;
     Nneurons=Nneurons,Ttot=Ttot)
@@ -243,7 +258,7 @@ function get_psth(idxs_neu::AbstractVector{<:Integer},dt::Float64,spktimes::Vect
 end
 
 
-function raster_png(dt::Float64,rspk::RecSpikes ;
+function raster_png(dt::Float64,rspk::Union{RecSpikes,RecSpikesContent};
     Nneurons::Int64=-1,
     Tend::Float64=0.0,spike_height::Int64=5,
     reorder::Vector{Int64}=Int64[])
@@ -341,8 +356,9 @@ struct RecWeights
     return new(conn.weights,Ref(false),everyk,nrecs,k_warmup,idx_save,times,weights_now)
   end
 end
-
 Base.length(rec::RecWeights) = length(rec.times)
+
+
 
 function reset!(rec::RecWeights)
   fill!(rec.times,NaN)
@@ -406,8 +422,16 @@ struct RecWeightsFull
     return new(conn.weights,Ref(false),everyk,nrecs,k_start,times,weights_now)
   end
 end
-
 Base.length(rec::RecWeightsFull) = length(rec.times)
+
+# easy to save wrapper
+struct RecWeightsFullContent
+  times::Vector{Float64}
+  weights_now::Vector{SparseMatrixCSC{Float64,Int64}}
+  function RecWeightsFullContent(r::RecCountSpikes)
+    new(r.times,r.weights_now)
+  end
+end
 
 function reset!(rec::RecWeightsFull)
   fill!(rec.times,NaN)
