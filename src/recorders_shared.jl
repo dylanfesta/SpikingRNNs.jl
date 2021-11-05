@@ -456,3 +456,63 @@ function (rec::RecWeightsFull)(t::Float64,k::Integer,::AbstractNetwork)
   rec.times[kless] = t
   return nothing
 end
+
+# utility functions for differences in weights
+
+_wdiff_plain(w1::R,w2::R) where R<:Real = w1 - w2
+_wdiff_plain(wmat1::Matrix{R},wmat2::Matrix{R}) where R<:Real = _wdiff_plain.(wmat1,wmat2)
+function _wdiff_rel(w1::R,w2::R) where R<:Real
+  wavg = 0.5(w1+w2)
+  (wavg == 0.0) && (return 0.0)
+  return (w1-w2)/wavg
+end
+_wdiff_rel(wmat1::Matrix{R},wmat2::Matrix{R}) where R<:Real = _wdiff_rel.(wmat1,wmat2)
+
+function _plus_minus_rescale(mat::Array{R}) where R
+  down,up = extrema(mat)
+  down=abs(down)
+  ret = copy(mat)
+  for (i,x) in enumerate(ret)
+    if x > 0
+        ret[i] = x/up 
+    elseif x < 0
+        ret[i] = x/down
+    end
+  end
+  return ret
+end
+function _wdiff_pm(wmat1::Matrix{R},wmat2::Matrix{R}) where R
+  return _plus_minus_rescale(wmat1.-wmat2)
+end
+
+# +1 if both elements exist , 0 if both absent, -1 if mismatch
+function _wdiff_structure(wmat1::Matrix{R},wmat2::Matrix{R}) where R
+  ret = Matrix{Int64}(undef,size(wmat1)...)
+  for i in eachindex(ret)
+    if (wmat1[i] != 0.0) && (wmat2[i] != 0.0)
+      ret[i] = 1
+    elseif (wmat1[i] != 0.0) || (wmat2[i] != 0.0)
+      ret[i] = -1
+    else
+      ret[i] = 0
+    end
+  end
+  return ret
+end
+
+function compare_weigth_matrices(weights1::AbstractMatrix,
+    weights2::AbstractMatrix,compare_funs...)
+  if isempty(compare_funs)
+    compare_funs=(_wdiff_plain,_wdiff_rel,_wdiff_pm)
+  end
+  w1 = Matrix(weights1)  
+  w2 = Matrix(weights2)
+  @assert size(w1) == size(w2)
+  ret = map(compare_funs) do _f
+    _f(w1,w2)
+  end
+  return ret
+end
+
+
+
