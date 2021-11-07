@@ -103,7 +103,7 @@ struct RecSpikes{PS<:PopulationState}
       nrecmax::Int64 = 10_000_000) where PS
     @assert (isempty(idx_save)  || issorted(idx_save)) "Plase store indexes to save in sorted order"
     nneus = isempty(idx_save) ? nneurons(ps) : length(idx_save)
-    if nneus == length(idx_save)  # if 1:Ntot, no need to keep it
+    if nneus == nneurons(ps)  # if 1:Ntot, no need to keep it
       idx_save = Int64[]
     end
     nrecs = ceil(Integer,nneus * expected_rate * (Tend-Tstart))
