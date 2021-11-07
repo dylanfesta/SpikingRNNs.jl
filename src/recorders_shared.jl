@@ -238,7 +238,7 @@ function binned_spikecount(dt::Float64,spktimes::Vector{Float64},
   ntimes = length(tbins)-1
   binnedcount = fill(0,(Nneus,ntimes))
   for (t,neu) in zip(spktimes,spkneurons)
-    if t >= tbins[1] # just in case
+    if (tbins[1] < t <= tbins[end]) # just in case
       tidx = searchsortedfirst(tbins,t)-1
       binnedcount[neu,tidx]+=1
     end
