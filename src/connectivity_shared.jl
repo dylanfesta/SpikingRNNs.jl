@@ -159,12 +159,13 @@ end
 
 
 # to order assemblies (no idea where to place this function)
-function order_by_pattern_idxs(pattern_idxs::Vector{Vector{Int64}},nneus::Int64)
+function order_by_pattern_idxs(pattern_idxs::Vector{Vector{Int64}},
+    nneus::Int64;rev::Bool=false)
   _tosort = map(1:nneus) do neu
     pa = findall(patt->neu in patt,pattern_idxs)
     isnothing(pa) && return 10_000_000
     (length(pa) == 1) && return pa[1]
     (length(pa)>1) && return sample(pa)
   end
-  return sortperm(_tosort;rev=true)
+  return sortperm(_tosort;rev=rev)
 end
