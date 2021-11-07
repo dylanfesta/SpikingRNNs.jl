@@ -225,15 +225,16 @@ end
 ##
 
 function binned_spikecount(dt::Float64,rspk::Union{RecSpikes,RecSpikesContent};
-    Nneurons::Int64=-1,Ttot::Float64=0.0)
+    Nneurons::Int64=-1,Tend::Float64=-1.0)
   return binned_spikecount(dt,get_spiketimes_spikeneurons(rspk)...;
-    Nneurons=Nneurons,Ttot=Ttot)
+    Nneurons=Nneurons,Tend=max(Tend,rspk.Tend),Tstart=rspk.Tstart)
 end
 function binned_spikecount(dt::Float64,spktimes::Vector{Float64},
-    spkneurons::Vector{Int64};Nneurons::Int64=-1,Ttot::Float64=0.0)
-  Ttot = max(Ttot, maximum(spktimes)+dt)
+    spkneurons::Vector{Int64};Nneurons::Int64=-1,
+      Tend::Float64=-1.0,Tstart::Float64=0.0)
+  Tend = max(Tend, maximum(spktimes)+dt)
   Nneus = max(Nneurons,maximum(spkneurons))
-  tbins = 0.0:dt:Ttot
+  tbins = Tstart:dt:Tend
   ntimes = length(tbins)-1
   binnedcount = fill(0,(Nneus,ntimes))
   for (t,neu) in zip(spktimes,spkneurons)
@@ -250,13 +251,15 @@ end
 # and returns a value in Hz
 function get_psth(idxs_neu::AbstractVector{<:Integer},
     dt::Float64,rspk::Union{RecSpikes,RecSpikesContent};
-    Nneurons::Int64=-1,Ttot::Float64=0.0)
+    Nneurons::Int64=-1,Tend::Float64=-1.0)
   return get_psth(idxs_neu,dt,get_spiketimes_spikeneurons(rspk)...;
-    Nneurons=Nneurons,Ttot=Ttot)
+    Nneurons=Nneurons,Tend=max(Tend,rspk.Tend),Tstart=rspk.Tstart)
 end
 function get_psth(idxs_neu::AbstractVector{<:Integer},dt::Float64,spktimes::Vector{Float64},
-  spkneurons::Vector{Int64};Nneurons::Int64=-1,Ttot::Float64=0.0)
- tmid,counts = binned_spikecount(dt,spktimes,spkneurons;Nneurons=Nneurons,Ttot=Ttot)
+  spkneurons::Vector{Int64};Nneurons::Int64=-1,Tend::Float64=-1.0,
+  Tstart::Float64=0.0)
+ tmid,counts = binned_spikecount(dt,spktimes,spkneurons;
+  Nneurons=Nneurons,Tend=Tend,Tstart=Tstart)
  ret2 = mean(view(counts,idxs_neu,:);dims=1)[:]
  return tmid,ret2 ./ dt
 end
