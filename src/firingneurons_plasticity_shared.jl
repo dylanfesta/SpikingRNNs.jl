@@ -330,9 +330,15 @@ struct HeterosynapticOutgoing <: HeterosynapticPlasticityTarget
 end 
 
 struct PlasticityHeterosynaptic{HetMeth<:HeterosynapticPlasticityMethod,HetTarg<:HeterosynapticPlasticityTarget} <: PlasticityRule
+  Δt_update::Float64
   method::HetMeth
   target::HetTarg
   _tcounter::Ref{Float64}
+  function PlasticityHeterosynaptic(Δt_update::Float64,
+      method::M,target::T) where {M<:HeterosynapticPlasticityMethod,T<:HeterosynapticPlasticityTarget}
+    counter = Ref(0.0)
+    new{M,T}(Δt_update,method,target,counter)
+  end
 end
 
 function reset!(plast::PlasticityHeterosynaptic)

@@ -159,6 +159,10 @@ function (rec::RecSpikes)(t::Float64,::Integer,::AbstractNetwork)
       rec.spiketimes[know] = Float32(t)
       rec.spikeneurons[know] = UInt16(neu)
       rec.k_now[] = know+1
+      if know+1 > rec.nrecords # must check for each spike
+        rec.isdone[]=true
+        return nothing
+      end
     end
   end
   return nothing
@@ -179,8 +183,9 @@ function get_spiketimes_dictionary(rec::Union{RecSpikes,RecSpikesContent})
   return ret
 end
 
-function get_mean_rates(rec::Union{RecSpikes,RecSpikesContent},
-     ::Float64,Tend::Float64)
+function get_mean_rates(rec::Union{RecSpikes,RecSpikesContent};
+    (Tend::Float64)=0.0)
+  Tend = min(Tend,rec.Tend)  
   ΔT = Tend-rec.Tstart
   dict = get_spiketimes_dictionary(rec)
   ret = Dict{Int64,Float64}()

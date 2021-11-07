@@ -333,7 +333,7 @@ end
 #   neu = 1 , vs = rec_state_e.state_now[neu,:]
 #   plot!(plt,ts,vs;leg=false,linewidth=2)
 # end
-  rates_e = let rdic=S.get_mean_rates(rec_spikes_e,dt,Ttot)
+  rates_e = let rdic=S.get_mean_rates(rec_spikes_e)
     ret = fill(0.0,n_e_rec)
     for (k,v) in pairs(rdic)
       ret[k] = v
@@ -364,7 +364,7 @@ end
     S.dynamics_step!(t,ntw)
   end
 
-  rates_e = let rdic=S.get_mean_rates(rec_spikes_e,dt,Ttot)
+  rates_e = let rdic=S.get_mean_rates(rec_spikes_e)
     ret = fill(0.0,n_e_rec)
     for (k,v) in pairs(rdic)
       ret[k] = v
