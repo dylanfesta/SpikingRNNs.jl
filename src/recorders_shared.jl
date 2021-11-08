@@ -430,10 +430,9 @@ function get_content(rec::RecWeightsFull)
 end
 
 
-
 function reset!(rec::RecWeightsFull)
   fill!(rec.times,NaN)
-  fill!(rec.weights_now,NaN)
+  fill!(rec.weights_now,sparse(zeros(1,1)))
   rec.isdone[]=false
   return nothing
 end
