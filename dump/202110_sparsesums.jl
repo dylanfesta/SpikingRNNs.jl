@@ -90,18 +90,28 @@ test4 = sum_over_cols4!(Matrix(Mtest))[:]
 ########################
 # Now repeat for row sum
 
+const n = 6000
+const spars = 0.3
+function domat(_n,_spars)
+  return sprand(_n,_n,_spars)
+end
+Mtest = domat(n,spars)
+
 function sum_over_rows1!(dest::Vector{Float64},M::SparseMatrixCSC)
   return sum!(dest,M)
 end
-function sum_over_rows2!(dest::Matrix{Float64},M::SparseMatrixCSC)
+function sum_over_rows2!(M::SparseMatrixCSC)
+  return sum(M;dims=2)
+end
+function sum_over_rows3!(dest::Matrix{Float64},M::SparseMatrixCSC)
   Mtr = permutedims(M)
   return sum!(dest,Mtr)
 end
-function sum_over_rows3!(dest::Matrix{Float64},M::SparseMatrixCSC)
+function sum_over_rows4!(dest::Matrix{Float64},M::SparseMatrixCSC)
   Mtr = transpose(M)
   return sum!(dest,Mtr)
 end
-function sum_over_rows4!(dest::Vector{Float64},M::SparseMatrixCSC)
+function sum_over_rows5!(dest::Vector{Float64},M::SparseMatrixCSC)
   fill!(dest,0.0)
   _rowidx = SparseArrays.rowvals(M)
   Mnz = nonzeros(M) # direct access to weights 
@@ -110,7 +120,7 @@ function sum_over_rows4!(dest::Vector{Float64},M::SparseMatrixCSC)
   end
   return dest
 end
-function sum_over_rows5!(M::SparseMatrixCSC)
+function sum_over_rows6!(M::SparseMatrixCSC)
   dest=zeros(size(M,1))
   _rowidx = SparseArrays.rowvals(M)
   Mnz = nonzeros(M) # direct access to weights 
@@ -127,41 +137,45 @@ test1 = let ret = fill(NaN,n)
   sum_over_rows1!(ret,Mtest)
   ret
 end
-test2 = let ret = fill(NaN,(1,n))
+test2 = sum_over_rows2!(Mtest)
+test3 = let ret = fill(NaN,(1,n))
   sum_over_rows2!(ret,Mtest)
   ret[:]
 end
-test3 = let ret = fill(NaN,(1,n))
+test4 = let ret = fill(NaN,(1,n))
   sum_over_rows3!(ret,Mtest)
   ret[:]
 end
-test4 = let ret = fill(NaN,n)
+test5 = let ret = fill(NaN,n)
   sum_over_rows4!(ret,Mtest)
   ret
 end
-test5 = sum_over_rows5!(Mtest)
+test6 = sum_over_rows5!(Mtest)
 
 @test all(isapprox.(test1,test2))
 @test all(isapprox.(test1,test3))
 @test all(isapprox.(test1,test4))
 @test all(isapprox.(test1,test5))
+@test all(isapprox.(test1,test6))
 
 ##
 @info "Benchmark for function 1"
 @benchmark sum_over_rows1!(dest,M) setup=(M=domat(n,spars);dest=Vector{Float64}(undef,n))
 ##
 @info "Benchmark for function 2"
-@benchmark sum_over_rows2!(dest,M) setup=(M=domat(n,spars);dest=Matrix{Float64}(undef,(1,n)))
+@benchmark sum_over_rows2!(M) setup=(M=domat(n,spars))
 ##
 @info "Benchmark for function 3"
 @benchmark sum_over_rows3!(dest,M) setup=(M=domat(n,spars);dest=Matrix{Float64}(undef,(1,n)))
 ##
 @info "Benchmark for function 4"
-@benchmark sum_over_rows4!(dest,M) setup=(M=domat(n,spars);dest=Vector{Float64}(undef,n))
+@benchmark sum_over_rows4!(dest,M) setup=(M=domat(n,spars);dest=Matrix{Float64}(undef,(1,n)))
 ##
 @info "Benchmark for function 5"
-@benchmark sum_over_rows5!(M) setup=(M=domat(n,spars))
-
+@benchmark sum_over_rows5!(dest,M) setup=(M=domat(n,spars);dest=Vector{Float64}(undef,n))
+##
+@info "Benchmark for function 6"
+@benchmark sum_over_rows6!(M) setup=(M=domat(n,spars))
 
 ##
 

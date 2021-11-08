@@ -372,6 +372,32 @@ hardbounds(x::R,low::R,high::R) where R = min(high,max(x,low))
   return  hardbounds(x,m.wmin,m.wmax)
 end
 
+# this should be a little faster than sum(M;dims=2)
+function sum_over_rows!(dest::Vector,M::SparseMatrixCSC)
+  _rowidx = SparseArrays.rowvals(M)
+  Mnz = nonzeros(M) # direct access to weights 
+  @inbounds for (i,r) in enumerate(_rowidx)
+    dest[r] += Mnz[i]
+  end
+  return dest
+end
+
+# how many elements are present along each col
+function count_col_elements(M::SparseMatrixCSC)
+  ncols = size(M,2)
+  return length.(nzrange.(Ref(M),1:ncols))
+end
+
+# how many elements are present along each row
+function count_row_elements(M::SparseMatrixCSC)
+  nrows = size(M,1)
+  ret = fill(0,nrows)
+  for r in rowvals(M)
+    ret[r]+=1
+  end
+  return ret
+end
+
 # additive, incoming connections corresponds to rows
 function _apply_easy_het_plasticity!(sparseweights::SparseMatrixCSC,
     method::HeterosynapticAdditive,
@@ -379,14 +405,21 @@ function _apply_easy_het_plasticity!(sparseweights::SparseMatrixCSC,
   sum_max = target.sum_max
   nzw = nonzeros(sparseweights)
   wrows = rowvals(sparseweights)
-  sumswee = sum(sparseweights;dims=2)
-  for (r,_sumr) in enumerate(sumswee)
-    if _sumr > sum_max
-      idxs = findall(==(r),wrows)
-      for idx in idxs
-        newval = nzw[idx] - (sumswee[r] - sum_max)/length(idxs)
-        nzw[idx] = hardbounds(newval,method)
-      end
+  fixthing = Vector{Float64}(undef,size(sparseweights,1))
+  sum_over_rows!(fixthing,sparseweights)
+  n_el_row = count_row_elements(sparseweights)
+  for i in eachindex(fixthing)
+    _sum = fixthing[i]
+    if _sum > sum_max
+      fixthing[i] = (sum_max-_sum)/n_el_row[i]
+    else
+      fixthing[i] = 0.0
+    end
+  end
+  for (_r,row) in enumerate(wrows)
+    fix = fixthing[row]
+    if !iszero(fix) # faster ?
+      nzw[_r] = hardbounds(nzw[_r]+fix,method)
     end
   end
   return nothing
