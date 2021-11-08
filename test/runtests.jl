@@ -376,6 +376,42 @@ end
 end
 
 
+@testset "Homeostatic plasticity, easy implementation" begin
+
+  # incoming connections : rows
+  # Npost neurons have Npre incoming connections
+  Npost = 13
+  Npre = 17
+  sum_max = Npre/2 - 0.1
+  wtest_in_start = sparse(rand(Npost,Npre))
+  sum_start = sum(wtest_in_start;dims=2)
+  plast_method = S.HeterosynapticAdditive(-Inf,10.0)
+  plast_target = S.HeterosynapticIncoming(sum_max)
+  wtest_in = copy(wtest_in_start)
+  S._apply_easy_het_plasticity!(wtest_in,plast_method,plast_target)
+  sum_end = sum(wtest_in;dims=2)
+  @test all(sum_end .<= sum_max+1E-6)
+  idx_good = findall(<=(sum_max),sum_start)
+  @test all(sum_end[idx_good] .== sum_start[idx_good])
+  
+  # outgoing connections, columns
+  
+  Npost = 11
+  Npre = 19
+  sum_max = Npost/2 - 0.1
+  wtest_in_start = sparse(rand(Npost,Npre))
+  sum_start = sum(wtest_in_start;dims=2)
+  plast_method = S.HeterosynapticAdditive(-Inf,10.0)
+  plast_target = S.HeterosynapticOutgoing(sum_max)
+  wtest_in = copy(wtest_in_start)
+  S._apply_easy_het_plasticity!(wtest_in,plast_method,plast_target)
+  sum_end = sum(wtest_in;dims=1)
+  @test all(sum_end .<= sum_max+1E-6)
+  idx_good = findall(<=(sum_max),sum_start)
+  @test all(sum_end[idx_good] .== sum_start[idx_good])
+
+end
+
 #=
 @testset "single LIF neuron" begin
   dt = 5E-4

@@ -313,12 +313,17 @@ end
 
 # Heterosynaptic plasticity modes
 
+
+
+
 abstract type HeterosynapticPlasticityMethod end
 struct HeterosynapticAdditive <: HeterosynapticPlasticityMethod
   wmin::Float64
+  wmax::Float64
 end
 struct HeterosynapticMultiplicative <: HeterosynapticPlasticityMethod 
   wmin::Float64
+  wmax::Float64
 end
 
 abstract type HeterosynapticPlasticityTarget end
@@ -329,7 +334,88 @@ struct HeterosynapticOutgoing <: HeterosynapticPlasticityTarget
   sum_max::Float64
 end 
 
-struct PlasticityHeterosynaptic{HetMeth<:HeterosynapticPlasticityMethod,HetTarg<:HeterosynapticPlasticityTarget} <: PlasticityRule
+struct PlasticityHeterosynapticEasy{HetMeth<:HeterosynapticPlasticityMethod,
+    HetTarg<:HeterosynapticPlasticityTarget} <: PlasticityRule
+  Δt_update::Float64
+  method::HetMeth
+  target::HetTarg
+  _tcounter::Ref{Float64}
+  function PlasticityHeterosynapticEasy(Δt_update::Float64,
+      method::M,target::T) where {M<:HeterosynapticPlasticityMethod,T<:HeterosynapticPlasticityTarget}
+    counter = Ref(0.0)
+    new{M,T}(Δt_update,method,target,counter)
+  end
+end
+
+function reset!(plast::PlasticityHeterosynapticEasy)
+  plast._tcounter[] = zero(Float64)
+  return nothing
+end
+
+function plasticity_update!(::R,dt::R,
+     pspost::PopulationState,conn::Connection,pspre::PopulationState,
+     plast::PlasticityHeterosynapticEasy) where R
+  if plast._tcounter[] < plast.Δt_update  
+    plast._tcounter[] += dt
+    return nothing
+  end
+  # reset timer
+  plast._tcounter[] = zero(R)
+  # apply plasticity at each col/row , depending on target
+  _apply_easy_het_plasticity!(conn.weights,plast.method,plast.target)
+  return nothing
+end
+
+hardbounds(x::R,low::R,high::R) where R = min(high,max(x,low))
+
+@inline function hardbounds(x::Real,m::HeterosynapticPlasticityMethod)
+  return  hardbounds(x,m.wmin,m.wmax)
+end
+
+# additive, incoming connections corresponds to rows
+function _apply_easy_het_plasticity!(sparseweights::SparseMatrixCSC,
+    method::HeterosynapticAdditive,
+    target::HeterosynapticIncoming)
+  sum_max = target.sum_max
+  nzw = nonzeros(sparseweights)
+  wrows = rowvals(sparseweights)
+  sumswee = sum(sparseweights;dims=2)
+  for (r,_sumr) in enumerate(sumswee)
+    if _sumr > sum_max
+      idxs = findall(==(r),wrows)
+      for idx in idxs
+        newval = nzw[idx] - (sumswee[r] - sum_max)/length(idxs)
+        nzw[idx] = hardbounds(newval,method)
+      end
+    end
+  end
+  return nothing
+end
+
+# additive, outgoing connections corresponds to columns
+function _apply_easy_het_plasticity!(sparseweights::SparseMatrixCSC,
+    method::HeterosynapticAdditive,
+    target::HeterosynapticOutgoing)
+  sum_max = target.sum_max
+  nzw = nonzeros(sparseweights)
+  sumswee = sum(sparseweights;dims=1)
+  for (c,_sumr) in enumerate(sumswee)
+    if _sumr > sum_max
+      idxs = nzrange(sparseweights,c)
+      for idx in idxs
+        newval = nzw[idx] - (sumswee[c] - sum_max)/length(idxs)
+        nzw[idx] = hardbounds(newval,method)
+      end
+    end
+  end
+  return nothing
+end
+
+
+
+# This code is just too slow :-( 
+struct PlasticityHeterosynaptic{HetMeth<:HeterosynapticPlasticityMethod,
+    HetTarg<:HeterosynapticPlasticityTarget} <: PlasticityRule
   Δt_update::Float64
   method::HetMeth
   target::HetTarg
@@ -461,7 +547,7 @@ function _heterosynaptic_fix!(nzvals::Vector{Float64},idxs::Vector{<:Integer},
 end
 
 
-function plasticity_update!(t_now::Real,dt::Real,
+function plasticity_update!(::Real,dt::Real,
      pspost::PopulationState,conn::Connection,pspre::PopulationState,
      plast::PlasticityHeterosynaptic)
   plast._tcounter[] += dt
