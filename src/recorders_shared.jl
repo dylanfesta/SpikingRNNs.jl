@@ -307,53 +307,62 @@ function raster_png(dt::Float64,rspk::Union{RecSpikes,RecSpikesContent};
   return ret
 end
 
-
 # record weights
 # might be useful when testing plasticity at small scale,
 # otherwise use RecWeightsFull, below
 
-struct RecWeights
+struct RecWeightsDoThings
   weights::SparseMatrixCSC{Float64,Int64}
   isdone::Ref{Bool}
   krec::Int64 # record every k timesteps
   nrecords::Int64 # max recorded steps
-  k_warmup::Int64 # starts to record only after this 
-  idx_save::Vector{CartesianIndex{2}} # which weights to save
+  k_start::Int64 # starts to record only after this 
+  fun_things::Function # stuff to do, takes SparseMatrix, returns vector
+  out_size::Int64 # size of function output vector
   times::Vector{Float64}
-  weights_now::Matrix{Float64}
-  function RecWeights(conn::Connection,
+  fun_output::Matrix{Float64}
+  function RecWeightsDoThings(conn::Connection,thefun::Function,
       everyk::Integer,dt::Float64,Tmax::Float64; 
-      idx_save::Vector{CartesianIndex{2}}=CartesianIndex{2}[],
       Tstart::Float64=0.0)
     if iszero(n_plasticity_rules(conn))
       @warn "The connection has no plasticity, there is no need of tracking it!"
     end
-    k_warmup = floor(Int64,Tstart/dt)
+    out_sample = thefun(conn.weights)
+    typeassert(out_sample,Vector{Float64})
+    out_size = length(out_sample)
+    k_start = floor(Int64,Tstart/dt)
     nrecs = floor(Int64,(Tmax-Tstart)/(everyk*dt))
     times = fill(NaN,nrecs)
-    if isempty(idx_save)
-      x,y,_ = findnz(conn.weights)
-      idx_save = CartesianIndex.(x,y)
-    end
-    nweights = length(idx_save)
-    weights_now = fill(NaN,nweights,nrecs)
-    return new(conn.weights,Ref(false),everyk,nrecs,k_warmup,idx_save,times,weights_now)
+    fun_output = fill(NaN,out_size,nrecs)
+    return new(conn.weights,Ref(false),everyk,nrecs,k_start,
+      thefun,out_size,
+      times,fun_output)
   end
 end
-Base.length(rec::RecWeights) = length(rec.times)
+Base.length(rec::RecWeightsDoThings) = length(rec.times)
+
+# easy to save wrapper
+struct RecWeightsDoThingsContent
+  times::Vector{Float64}
+  fun_output::Matrix{Float64}
+  function RecWeightsDoThingsContent(r::RecWeightsDoThings)
+    new(r.times,r.fun_output)
+  end
+end
+function get_content(rec::RecWeightsDoThings)
+  return RecWeightsDoThingsContent(rec)
+end
 
 
-
-function reset!(rec::RecWeights)
+function reset!(rec::RecWeightsDoThings)
   fill!(rec.times,NaN)
-  fill!(rec.weights_now,NaN)
+  fill!(rec.fun_output,NaN)
   rec.isdone[]=false
   return nothing
 end
 
-function (rec::RecWeights)(t::Float64,k::Integer,ntw::AbstractNetwork)
-  # I assume k starts from 1, which corresponds to t=0
-  kless,_rem=divrem((k-1-rec.k_warmup),rec.krec)
+function (rec::RecWeightsDoThings)(t::Float64,k::Integer,::AbstractNetwork)
+  kless,_rem=divrem((k-1-rec.k_start),rec.krec)
   kless += 1 # vector index must start from 1
   if (_rem != 0) || kless<=0 || rec.isdone[]
     return nothing
@@ -362,24 +371,24 @@ function (rec::RecWeights)(t::Float64,k::Integer,ntw::AbstractNetwork)
     rec.isdone[]=true
     return nothing
   end
-  rec.weights_now[:,kless] .= rec.weights[rec.idx_save]
+  rec.fun_output[:,kless] .= rec.fun_things(rec.weights)
   rec.times[kless] = t
   return nothing
 end
 
-function rebuild_weights(rec::RecWeights)
-  times = rec.times
-  ntimes = length(times)
-  wout = Vector{SparseMatrixCSC{Float64,Int64}}(undef,ntimes)
-  for kt in 1:ntimes
-    _w = zeros(Float64,size(rec.weights))
-    for (k,ij) in enumerate(rec.idx_save)
-      _w[ij] = rec.weights_now[k,kt]
-    end
-    wout[kt] = sparse(_w)
-  end
-  return times,wout
-end
+# function rebuild_weights(rec::RecWeights)
+#   times = rec.times
+#   ntimes = length(times)
+#   wout = Vector{SparseMatrixCSC{Float64,Int64}}(undef,ntimes)
+#   for kt in 1:ntimes
+#     _w = zeros(Float64,size(rec.weights))
+#     for (k,ij) in enumerate(rec.idx_save)
+#       _w[ij] = rec.weights_now[k,kt]
+#     end
+#     wout[kt] = sparse(_w)
+#   end
+#   return times,wout
+# end
 
 # records the full weight matrix
 # this makes life much easier where there is structural plasticity.
