@@ -311,7 +311,7 @@ end
 # might be useful when testing plasticity at small scale,
 # otherwise use RecWeightsFull, below
 
-struct RecWeightsDoThings
+struct RecWeightsApplyFunction
   weights::SparseMatrixCSC{Float64,Int64}
   isdone::Ref{Bool}
   krec::Int64 # record every k timesteps
@@ -321,7 +321,7 @@ struct RecWeightsDoThings
   out_size::Int64 # size of function output vector
   times::Vector{Float64}
   fun_output::Matrix{Float64}
-  function RecWeightsDoThings(conn::Connection,thefun::Function,
+  function RecWeightsApplyFunction(conn::Connection,thefun::Function,
       everyk::Integer,dt::Float64,Tmax::Float64; 
       Tstart::Float64=0.0)
     if iszero(n_plasticity_rules(conn))
@@ -339,29 +339,29 @@ struct RecWeightsDoThings
       times,fun_output)
   end
 end
-Base.length(rec::RecWeightsDoThings) = length(rec.times)
+Base.length(rec::RecWeightsApplyFunction) = length(rec.times)
 
 # easy to save wrapper
-struct RecWeightsDoThingsContent
+struct RecWeightsApplyFunctionContent
   times::Vector{Float64}
   fun_output::Matrix{Float64}
-  function RecWeightsDoThingsContent(r::RecWeightsDoThings)
+  function RecWeightsApplyFunctionContent(r::RecWeightsApplyFunction)
     new(r.times,r.fun_output)
   end
 end
-function get_content(rec::RecWeightsDoThings)
-  return RecWeightsDoThingsContent(rec)
+function get_content(rec::RecWeightsApplyFunction)
+  return RecWeightsApplyFunctionContent(rec)
 end
 
 
-function reset!(rec::RecWeightsDoThings)
+function reset!(rec::RecWeightsApplyFunction)
   fill!(rec.times,NaN)
   fill!(rec.fun_output,NaN)
   rec.isdone[]=false
   return nothing
 end
 
-function (rec::RecWeightsDoThings)(t::Float64,k::Integer,::AbstractNetwork)
+function (rec::RecWeightsApplyFunction)(t::Float64,k::Integer,::AbstractNetwork)
   kless,_rem=divrem((k-1-rec.k_start),rec.krec)
   kless += 1 # vector index must start from 1
   if (_rem != 0) || kless<=0 || rec.isdone[]
