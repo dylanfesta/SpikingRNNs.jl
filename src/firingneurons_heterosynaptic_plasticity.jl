@@ -45,11 +45,19 @@ struct PlasticityHeterosynapticSpikeTriggered{
   method::HM
   target::HT
   Δt_min_update::Float64
-  _tlast::Ref{Float64}
+  t_last_update::Vector{Float64}
+end
+function PlasticityHeterosynapticSpikeTriggered(
+    nneus::Integer, Δt::Float64,
+    hc::HeterosynapticConstraint,
+    hm::HeterosynapticMethod,
+    ht::HeterosynapticTarget)
+  t_last = fill(-Inf,nneus)  
+  return PlasticityHeterosynapticSpikeTriggered(hc,hm,ht,Δt,t_last)
 end
 
 function reset!(plast::PlasticityHeterosynapticSpikeTriggered)
-  plast._tlast[] = -Inf
+  fill!(plast.t_last_update,-Inf)
   return nothing
 end
 
@@ -57,16 +65,24 @@ function plasticity_update!(t::R,::R,
      pspost::PopulationState,conn::Connection,::PopulationState,
      plast::PlasticityHeterosynapticSpikeTriggered) where R
   
-  # to avoid excessively freqent updates
-  if (t-plast._tlast[]) < plast.Δt_min_update  
-    return nothing
-  end
-  # reset timer
-  plast._tlast[] = t
   if !any(pspost.isfiring) # to optimize a little
     return nothing
   end
   idxs_fire = findall(pspost.isfiring)
+  # check time 
+  to_keep = falses(length(idxs_fire))
+  for (i,neu) in enumerate(idxs_fire)
+    if (t-plast.t_last_update[neu]) > plast.Δt_min_update  
+      # keep it, reset timer
+      to_keep[i] = true
+      plast.t_last_update[neu] = t
+    end
+  end
+  if !any(to_keep)
+    return nothing
+  end
+  # meh, it's not much faster if regularize less neurons
+  plast.t_last_update[idxs_fire].= t
   # check if must be normalized, returns sum and n elements
   idxs_change,sumvals,nvals = _hetplast_check(idxs_fire,
     conn.weights,
