@@ -92,7 +92,7 @@ function plasticity_update!(t::R,::R,
   end
   # apply correction
   _apply_hetplast_spiketriggered!(to_change,idxs_fire,sumvals,nvals,
-      conn.weights, conn.target,conn.method,conn.constraint)
+      conn.weights, plast.target,plast.method,plast.constraint)
   return nothing
 end
 
