@@ -13,8 +13,12 @@ using InvertedIndices
 
 using Random; Random.seed!(0)
 
-##
 
+# testing utility function
+function sparse_thingies(w::SparseMatrixCSC)
+  return nonzeros(w),rowvals(w),SparseArrays.getcolptr(w)
+end
+##
 
 ##
 dt = 0.1E-3

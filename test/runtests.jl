@@ -12,6 +12,11 @@ function onesparsemat(w::Real)
   return sparse(mat)
 end
 
+# testing utility function
+function sparse_thingies(w::SparseMatrixCSC)
+  return nonzeros(w),rowvals(w),SparseArrays.getcolptr(w)
+end
+
 ##
 
 @testset "Connectivity matrices" begin
@@ -409,6 +414,55 @@ end
   @test all(sum_end .<= sum_max+1E-6)
   idx_good = findall(<=(sum_max),sum_start)
   @test all(sum_end[idx_good] .== sum_start[idx_good])
+  
+  # Internals for other method
+  N = 400
+  sp = 0.4
+  testmat = sprand(N,N,sp) 
+  meansum = N*sp*0.5 
+  maxsum = meansum - 10.0
+
+  hup = S.HetUpperLimit(maxsum,-Inf,Inf,0.0)
+  hprecise = S.HetStrictSum(maxsum,-Inf,Inf,1E-4)
+  hetincoming = S.HetIncoming()
+  hetoutgoing = S.HetOutgoing()
+  hetboth = S.HetBoth()
+
+  idxtry = sample((1:N),200;replace=false)
+  # outgoing, along columns
+  testvals =  S._hetplast_check(idxtry,testmat,
+      S.HetOutgoing(),hup)
+  testmatfix = copy(testmat)
+  S._apply_hetplast_spiketriggered!(testvals...,
+    testmatfix, S.HetOutgoing(),S.HetAdditive(),
+    hup)
+  @test all(sum(testmatfix;dims=1)[idxtry] .< (maxsum + 1E-5)) 
+
+  # incoming, along rows
+  testvals =  S._hetplast_check(idxtry,testmat,
+      S.HetIncoming(),hprecise)
+
+  testmatfix = copy(testmat)
+  S._apply_hetplast_spiketriggered!(testvals...,
+    testmatfix, S.HetIncoming(),S.HetAdditive(),
+    hprecise)
+  @test all(isapprox.(sum(testmatfix;dims=2)[idxtry],maxsum;atol=1E-3))
+
+  # both, exact sum, for a single neuron
+  _lowval = 1.234
+  hprecise_low = S.HetStrictSum(_lowval,-Inf,Inf,1E-4)
+  # idxtry = [div(N,3),]
+  idxtry = [div(N,3)]
+
+  testvals =  S._hetplast_check(idxtry,testmat,
+      S.HetBoth(),hprecise_low)
+  testmatfix = copy(testmat)
+  S._apply_hetplast_spiketriggered!(testvals...,
+    testmatfix, S.HetBoth(),S.HetAdditive(),
+    hprecise_low)
+
+  @test isapprox(sum(testmatfix[:,idxtry]),_lowval;atol=1E-4)
+  @test isapprox(sum(testmatfix[idxtry,:]),_lowval;atol=1E-4)
 
 end
 

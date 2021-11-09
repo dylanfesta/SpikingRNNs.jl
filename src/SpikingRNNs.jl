@@ -194,8 +194,15 @@ end
 
 dynamics_step!(ntw::RecurrentNetwork) = dynamics_step!(NaN,ntw)
 
+##
+
+@inline hardbounds(x::R,low::R,high::R) where R = min(high,max(x,low))
+
+##
+
 include("firingneurons_shared.jl")
 include("firingneurons_plasticity_shared.jl")
+include("firingneurons_heterosynaptic_plasticity.jl")
 include("connectivity_shared.jl")
 include("rate_models.jl")
 include("lif_current.jl")
