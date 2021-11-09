@@ -430,20 +430,20 @@ end
 
   idxtry = sample((1:N),200;replace=false)
   # outgoing, along columns
-  testvals =  S._hetplast_check(idxtry,testmat,
+  tochange,sumsvals,nels =  S._hetplast_check(idxtry,testmat,
       S.HetOutgoing(),hup)
   testmatfix = copy(testmat)
-  S._apply_hetplast_spiketriggered!(testvals...,
+  S._apply_hetplast_spiketriggered!(tochange,idxtry,sumsvals,nels,
     testmatfix, S.HetOutgoing(),S.HetAdditive(),
     hup)
   @test all(sum(testmatfix;dims=1)[idxtry] .< (maxsum + 1E-5)) 
 
   # incoming, along rows
-  testvals =  S._hetplast_check(idxtry,testmat,
+  tochange,sumsvals,nels =  S._hetplast_check(idxtry,testmat,
       S.HetIncoming(),hprecise)
 
   testmatfix = copy(testmat)
-  S._apply_hetplast_spiketriggered!(testvals...,
+  S._apply_hetplast_spiketriggered!(tochange,idxtry,sumsvals,nels,
     testmatfix, S.HetIncoming(),S.HetAdditive(),
     hprecise)
   @test all(isapprox.(sum(testmatfix;dims=2)[idxtry],maxsum;atol=1E-3))
@@ -454,16 +454,16 @@ end
   # idxtry = [div(N,3),]
   idxtry = [div(N,3)]
 
-  testvals =  S._hetplast_check(idxtry,testmat,
+  tochange,sumsvals,nels  =  S._hetplast_check(idxtry,testmat,
       S.HetBoth(),hprecise_low)
   testmatfix = copy(testmat)
-  S._apply_hetplast_spiketriggered!(testvals...,
+  S._apply_hetplast_spiketriggered!(tochange,idxtry,sumsvals,nels,
     testmatfix, S.HetBoth(),S.HetAdditive(),
     hprecise_low)
 
   @test isapprox(sum(testmatfix[:,idxtry]),_lowval;atol=1E-4)
   @test isapprox(sum(testmatfix[idxtry,:]),_lowval;atol=1E-4)
-
+  # TO-DO  a test with both, but where only row/col passes the limit
 end
 
 #=

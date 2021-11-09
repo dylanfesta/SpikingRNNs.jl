@@ -84,17 +84,15 @@ function plasticity_update!(t::R,::R,
   # meh, it's not much faster if regularize less neurons
   plast.t_last_update[idxs_fire].= t
   # check if must be normalized, returns sum and n elements
-  idxs_change,sumvals,nvals = _hetplast_check(idxs_fire,
-    conn.weights,
+  to_change,sumvals,nvals = _hetplast_check(idxs_fire,conn.weights,
     plast.target,plast.constraint)
   # correct the weights only if needed
-  if isempty(idxs_change)
+  if !any(to_change)
     return nothing
   end
   # apply correction
-  _apply_hetplast_spiketriggered!(idxs_change,sumvals,nvals,
-      conn.weights,
-      conn.target,conn.method,conn.constraint)
+  _apply_hetplast_spiketriggered!(to_change,idxs_fire,sumvals,nvals,
+      conn.weights, conn.target,conn.method,conn.constraint)
   return nothing
 end
 
@@ -115,7 +113,7 @@ function _hetplast_check(idxs::Vector{I},
   _sums_val = sums_all[idxs]
   _sums_nel = n_el[idxs]
   tochange = _hetconstraint_vs_sum(_sums_val,constraint)
-  return idxs[tochange],_sums_val[tochange],_sums_nel[tochange]
+  return tochange,_sums_val,_sums_nel
 end
 
 
@@ -137,7 +135,7 @@ function _hetplast_check(idxs::Vector{I},
     end
   end
   tochange = _hetconstraint_vs_sum(_sums_val,constraint)
-  return idxs[tochange],_sums_val[tochange],_sums_nel[tochange]
+  return tochange,_sums_val,_sums_nel
 end
 
 # both incoming end outgoing. Returns two elements, one for 
@@ -155,8 +153,7 @@ function _hetplast_check(idxs::Vector{I},
     sums_all[row] += weights_nonzeros[_r]
     n_el[row] += 1
   end
-  twoidxs = repeat(idxs;inner=2)
-  twonsp=length(twoidxs)
+  twonsp=2*length(idxs)
   _sums_val = Vector{Float64}(undef,twonsp)
   _sums_nel = Vector{Int64}(undef,twonsp)
   # sum over rows : odd elements
@@ -172,12 +169,13 @@ function _hetplast_check(idxs::Vector{I},
     end
   end
   tochange = _hetconstraint_vs_sum(_sums_val,constraint)
-  return twoidxs[tochange],_sums_val[tochange],_sums_nel[tochange]
+  return tochange,_sums_val,_sums_nel
 end
 
 
 # incoming additive (rows)
-function _apply_hetplast_spiketriggered!(neus::Vector{I},
+function _apply_hetplast_spiketriggered!(to_change::BitArray{1},
+    neus::Vector{I},
     sumvals::Vector{F},nelvals::Vector{I},
     weights::SparseMatrixCSC{Float64,Int64},
     ::HetIncoming,
@@ -189,7 +187,9 @@ function _apply_hetplast_spiketriggered!(neus::Vector{I},
   # feels like MATLAB !!!
   fix_vals_all = fill(0.0,N) # much empty!
   for (k,neu) in enumerate(neus)
-    fix_vals_all[neu] = (constraint.wsum_max - sumvals[k]) ./ nelvals[k]
+    if to_change[k]
+      fix_vals_all[neu] = (constraint.wsum_max - sumvals[k]) ./ nelvals[k]
+    end
   end
   for (_r,row) in enumerate(weights_rows)
     _fix = fix_vals_all[row]
@@ -202,7 +202,8 @@ function _apply_hetplast_spiketriggered!(neus::Vector{I},
 end  
 
 # outgoing additive (columns)
-function _apply_hetplast_spiketriggered!(neus::Vector{I},
+function _apply_hetplast_spiketriggered!(to_change::BitArray{1},
+    neus::Vector{I},
     sumvals::Vector{F},nelvals::Vector{I},
     weights::SparseMatrixCSC{Float64,Int64},
     ::HetOutgoing,
@@ -211,30 +212,38 @@ function _apply_hetplast_spiketriggered!(neus::Vector{I},
   # pass over columns
   weights_nonzeros = nonzeros(weights)
   for (k,col) in enumerate(neus)
-    fixval_k = (constraint.wsum_max - sumvals[k]) / nelvals[k]
-    for _r in nzrange(weights,col)
-      weights_nonzeros[_r] = hardbounds(
-        weights_nonzeros[_r]+fixval_k,constraint)
+    if to_change[k]
+      fixval_k = (constraint.wsum_max - sumvals[k]) / nelvals[k]
+      for _r in nzrange(weights,col)
+        weights_nonzeros[_r] = hardbounds(
+          weights_nonzeros[_r]+fixval_k,constraint)
+      end
     end
   end
   return nothing
 end  
 
 # both outoing and incoming additive (rows and columns)
-function _apply_hetplast_spiketriggered!(neus::Vector{I},
+function _apply_hetplast_spiketriggered!(to_change::BitArray{1},
+    _neus::Vector{I},
     sumvals::Vector{F},nelvals::Vector{I},
     weights::SparseMatrixCSC{Float64,Int64},
     ::HetBoth,
     ::HetAdditive,constraint::HeterosynapticConstraint) where {
       I<:Integer,F<:Real}
+  # repeat for rows and columsn
+  neus = repeat(_neus;inner=2)
+  @assert length(neus) == length(to_change)
   # row part , odd elements
   weights_nonzeros = nonzeros(weights)
   weights_rows = rowvals(weights)
   N = size(weights,1)
   fix_vals_all = fill(0.0,N)
   for k in 1:2:length(neus)
-    row = neus[k]
-    fix_vals_all[row] = (constraint.wsum_max - sumvals[k]) ./ nelvals[k]
+    if to_change[k]
+      row = neus[k]
+      fix_vals_all[row] = (constraint.wsum_max - sumvals[k]) ./ nelvals[k]
+    end
   end
   for (_r,row) in enumerate(weights_rows)
     _fix = fix_vals_all[row]
@@ -245,11 +254,13 @@ function _apply_hetplast_spiketriggered!(neus::Vector{I},
   end
   # now, pass over columns : even elements
   for k in 2:2:length(neus)
-    col = neus[k]
-    fix_val_k = (constraint.wsum_max - sumvals[k]) / nelvals[k]
-    for _r in nzrange(weights,col)
-      weights_nonzeros[_r] = hardbounds(
-        weights_nonzeros[_r]+fix_val_k,constraint)
+    if to_change[k]
+      col = neus[k]
+      fix_val_k = (constraint.wsum_max - sumvals[k]) / nelvals[k]
+      for _r in nzrange(weights,col)
+        weights_nonzeros[_r] = hardbounds(
+          weights_nonzeros[_r]+fix_val_k,constraint)
+      end
     end
   end
   return nothing
