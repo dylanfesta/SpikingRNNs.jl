@@ -270,6 +270,23 @@ end
 # and here is the EASY plasticity, instead of spike triggered
 # ... to rewrite to make it more uniform to the above 
 
+
+# struct PlasticityHeterosynapticEasy2{HetMeth<:HeterosynapticPlasticityMethod,
+#     HetTarg<:HeterosynapticPlasticityTarget} <: PlasticityRule
+#   Δt_update::Float64
+#   method::HetMeth
+#   target::HetTarg
+#   _tcounter::Ref{Float64}
+#   function PlasticityHeterosynapticEasy2(Δt_update::Float64,
+#       method::M,target::T) where {M<:HeterosynapticPlasticityMethod,T<:HeterosynapticPlasticityTarget}
+#     counter = Ref(0.0)
+#     new{M,T}(Δt_update,method,target,counter)
+#   end
+# end
+
+
+
+
 abstract type HeterosynapticPlasticityMethod end
 struct HeterosynapticAdditive <: HeterosynapticPlasticityMethod
   wmin::Float64

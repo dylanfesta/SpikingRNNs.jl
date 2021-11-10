@@ -15,10 +15,16 @@ struct RecStateNow{PS<:PopulationState}
       idx_save::Vector{Int64}=Int64[],Tstart::Float64=0.0) where PS
     k_start = floor(Int64,Tstart/dt)
     nrecs = floor(Int64,(Tend-Tstart)/(everyk*dt))
+    isdone = Ref(false)
+    if nrecs < 1 
+      @warning "something wrong in the recorder... I assume this is a test ?"
+      nrecs=1
+      isdone = Ref(true)
+    end
     times = fill(NaN,nrecs)
     nneus = isempty(idx_save) ? nneurons(ps) : length(idx_save)
     states = fill(NaN,nneus,nrecs)
-    return new{PS}(ps,Ref(false),everyk,nrecs,k_start,idx_save,times,states)
+    return new{PS}(ps,isdone,everyk,nrecs,k_start,idx_save,times,states)
   end
 end
 
@@ -107,10 +113,16 @@ struct RecSpikes{PS<:PopulationState}
       idx_save = Int64[]
     end
     nrecs = ceil(Integer,nneus * expected_rate * (Tend-Tstart))
+    isdone = Ref(false)
+    if nrecs < 1 
+      @warning "something wrong in the recorder... I assume this is a test ?"
+      nrecs=1
+      isdone = Ref(true)
+    end
     @assert nrecs <= nrecmax "Saving data might require too much memory!"
     spiketimes = fill(NaN32,nrecs)
     spikeneurons = fill(UInt16(0),nrecs) # no neuron should be 0
-    return new{PS}(ps,Ref(false),nrecs,Ref(1),Tstart,Tend,idx_save,
+    return new{PS}(ps,isdone,nrecs,Ref(1),Tstart,Tend,idx_save,
       spiketimes,spikeneurons)
   end
 end
@@ -332,9 +344,15 @@ struct RecWeightsApplyFunction
     out_size = length(out_sample)
     k_start = floor(Int64,Tstart/dt)
     nrecs = floor(Int64,(Tmax-Tstart)/(everyk*dt))
+    isdone = Ref(false)
+    if nrecs < 1 
+      @warning "something wrong in the recorder... I assume this is a test ?"
+      nrecs=1
+      isdone = Ref(true)
+    end
     times = fill(NaN,nrecs)
     fun_output = fill(NaN,out_size,nrecs)
-    return new(conn.weights,Ref(false),everyk,nrecs,k_start,
+    return new(conn.weights,isdone,everyk,nrecs,k_start,
       thefun,out_size,
       times,fun_output)
   end
@@ -410,9 +428,15 @@ struct RecWeightsFull
     end
     k_start = floor(Int64,Tstart/dt)
     nrecs = floor(Int64,(Tend-Tstart)/(everyk*dt))
+    isdone = Ref(false)
+    if nrecs < 1 
+      @warning "something wrong in the recorder... I assume this is a test ?"
+      nrecs=1
+      isdone = Ref(true)
+    end
     times = fill(NaN,nrecs)
     weights_now = Vector{SparseMatrixCSC{Float64,Int64}}(undef,nrecs)
-    return new(conn.weights,Ref(false),everyk,nrecs,k_start,times,weights_now)
+    return new(conn.weights,isdone,everyk,nrecs,k_start,times,weights_now)
   end
 end
 Base.length(rec::RecWeightsFull) = length(rec.times)
