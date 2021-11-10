@@ -17,7 +17,7 @@ struct RecStateNow{PS<:PopulationState}
     nrecs = floor(Int64,(Tend-Tstart)/(everyk*dt))
     isdone = Ref(false)
     if nrecs < 1 
-      @warning "something wrong in the recorder... I assume this is a test ?"
+      @warn "something wrong in the recorder... I assume this is a test ?"
       nrecs=1
       isdone = Ref(true)
     end
@@ -115,7 +115,7 @@ struct RecSpikes{PS<:PopulationState}
     nrecs = ceil(Integer,nneus * expected_rate * (Tend-Tstart))
     isdone = Ref(false)
     if nrecs < 1 
-      @warning "something wrong in the recorder... I assume this is a test ?"
+      @warn "something wrong in the recorder... I assume this is a test ?"
       nrecs=1
       isdone = Ref(true)
     end
@@ -346,7 +346,7 @@ struct RecWeightsApplyFunction
     nrecs = floor(Int64,(Tmax-Tstart)/(everyk*dt))
     isdone = Ref(false)
     if nrecs < 1 
-      @warning "something wrong in the recorder... I assume this is a test ?"
+      @warn "something wrong in the recorder... I assume this is a test ?"
       nrecs=1
       isdone = Ref(true)
     end
@@ -430,7 +430,7 @@ struct RecWeightsFull
     nrecs = floor(Int64,(Tend-Tstart)/(everyk*dt))
     isdone = Ref(false)
     if nrecs < 1 
-      @warning "something wrong in the recorder... I assume this is a test ?"
+      @warn "something wrong in the recorder... I assume this is a test ?"
       nrecs=1
       isdone = Ref(true)
     end
