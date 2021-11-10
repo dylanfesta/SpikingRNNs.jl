@@ -264,13 +264,14 @@ function binned_spikecount(dt::Float64,spktimes::Vector{Float64},
   return binsc,binnedcount
 end
 
+
 # convolve spiketimes with negative exponential
 # for SINGLE / GROUP of neurons (not all)
 function get_spike_exp_convolution(dt::R,tau_exp::R,
     spiktimes::Vector{R},spkneurons::Vector{I},
     Nneurons::I,Tstart::R,Tend::R ; 
     idx_neurons::Union{Vector{I},Nothing}=nothing) where {R,I}
-  binnedt,binned_spikes = S.binned_spikecount(dt,spiktimes,spkneurons;
+  binnedt,binned_spikes = binned_spikecount(dt,spiktimes,spkneurons;
     Nneurons=Nneurons,Tstart=Tstart,Tend=Tend)
   @assert tau_exp > dt "convolution is too narrow!"  
   convvect = @. (exp(-(0:dt:(10tau_exp))/tau_exp))/tau_exp
@@ -284,11 +285,10 @@ function get_spike_exp_convolution(dt::R,tau_exp::R,
     rspk::Union{RecSpikes,RecSpikesContent},Nneurons::I;
     idx_neurons::Union{Vector{I},Nothing}=nothing) where {R,I}
   return get_spike_exp_convolution(dt,tau_exp,
-    get_spiketimes_spikeneurons(rspk)...,Nneurons,
+    S.get_spiketimes_spikeneurons(rspk)...,Nneurons,
     rspk.Tstart,rspk.Tend;
     idx_neurons=idx_neurons)
 end
-
 
 
 # simular to the above, but averages over selected neurons
