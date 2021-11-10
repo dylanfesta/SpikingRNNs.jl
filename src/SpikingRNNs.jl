@@ -2,6 +2,8 @@ module SpikingRNNs
 using LinearAlgebra,Statistics,StatsBase,Random,Distributions
 using SparseArrays
 using Colors # to save spike rasters as png
+using DSP # this is to have convolutions to analyze spike trains
+
 
 # all type declarations should go here :-/
 
