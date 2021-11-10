@@ -285,7 +285,7 @@ function get_spike_exp_convolution(dt::R,tau_exp::R,
     rspk::Union{RecSpikes,RecSpikesContent},Nneurons::I;
     idx_neurons::Union{Vector{I},Nothing}=nothing) where {R,I}
   return get_spike_exp_convolution(dt,tau_exp,
-    S.get_spiketimes_spikeneurons(rspk)...,Nneurons,
+    get_spiketimes_spikeneurons(rspk)...,Nneurons,
     rspk.Tstart,rspk.Tend;
     idx_neurons=idx_neurons)
 end
