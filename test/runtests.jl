@@ -464,6 +464,34 @@ end
   @test isapprox(sum(testmatfix[:,idxtry]),_lowval;atol=1E-4)
   @test isapprox(sum(testmatfix[idxtry,:]),_lowval;atol=1E-4)
   # TO-DO  a test with both, but where only row/col passes the limit
+
+
+  # more subroutines
+  N = 400
+  mattest = sparse(fill(1.0,N,N))
+  maxsum = N/2
+
+  constr = S.HetStrictSum(maxsum,-Inf,Inf,1E-4)
+
+  allocrows = fill(NaN,N)
+  alloccols = fill(NaN,N)
+
+  S._het_plasticity_fix_rows!(allocrows,fill(0,N),
+      mattest,constr,S.HetAdditive(),S.HetBoth())
+  S._het_plasticity_fix_cols!(alloccols,fill(0,N),
+      mattest,constr,S.HetAdditive(),S.HetBoth())
+  # apply the fix  
+  @test all( isapprox.(allocrows,-maxsum/N;atol=1E-4))
+  @test all( isapprox.(alloccols,-maxsum/N;atol=1E-4))
+  mattestfix = copy(mattest)
+  S._het_plasticity_apply_fix!( 
+        allocrows,alloccols,
+        mattestfix,
+        constr,S.HetAdditive(),S.HetBoth())
+  
+  @test all(isapprox.(sum(mattestfix;dims=1),maxsum;atol=1E-3))
+  @test all(isapprox.(sum(mattestfix;dims=2),maxsum;atol=1E-3))
+
 end
 
 #=

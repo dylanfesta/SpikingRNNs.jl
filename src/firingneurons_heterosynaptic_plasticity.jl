@@ -267,6 +267,164 @@ function _apply_hetplast_spiketriggered!(to_change::BitArray{1},
 end  
 
 
+# rewrite EASY plasticity for strict sum and both outgoing and incoming
+
+struct PlasticityHeterosynapticApprox{ 
+    HC<:HeterosynapticConstraint,
+    HM<:HeterosynapticMethod,
+    HT<:HeterosynapticTarget} <:PlasticityRule 
+  constraint::HC
+  method::HM
+  target::HT
+  Δt_update::Float64
+  _tcounter::Ref{Float64}
+  Nel_rows::Vector{Int64} # pre-allocate memory
+  Nel_cols::Vector{Int64}
+  allocrows::Vector{Float64}
+  alloccols::Vector{Float64}
+  function PlasticityHeterosynapticApprox(
+      Npost::Int64,Npre::Int64,
+      Δt_update::Float64,
+      hc::HC,hm::HM,ht::HT) where {
+        HC <: HeterosynapticConstraint,
+        HM <: HeterosynapticMethod,
+        HT <: HeterosynapticTarget }
+    _tcounter = Ref(0.0)  
+    Nel_rows = Vector{Int64}(undef,Npost)
+    Nel_cols = Vector{Int64}(undef,Npre)
+    allocrows = Vector{Float64}(undef,Npost)
+    alloccols = Vector{Float64}(undef,Npre)
+    return new{HC,HM,HT}(hc,hm,ht,
+      Δt_update,_tcounter,Nel_rows,Nel_cols,alloccols,allocrows)
+  end
+end
+
+function reset!(plast::PlasticityHeterosynapticApprox)
+  plast._tcounter[] = zero(Float64)
+  return nothing
+end
+
+
+function plasticity_update!(::R,dt::R,
+     pspost::PopulationState,conn::Connection,pspre::PopulationState,
+     plast::PlasticityHeterosynapticApprox) where R
+  if plast._tcounter[] < plast.Δt_update  
+    plast._tcounter[] += dt
+    return nothing
+  end
+  # reset timer
+  plast._tcounter[] = zero(R)
+  # find correction values at col/row , depending on target
+  _het_plasticity_fix_rows!(plast.allocrows,plast.Nel_rows,
+    conn.weights,plast.constraint,plast.method,plast.target)
+  _het_plasticity_fix_cols!(plast.alloccols,plast.Nel_cols,
+    conn.weights,plast.constraint,plast.method,plast.target)
+  # apply the fix  
+  _het_plasticity_apply_fix!( 
+      plast.allocrows,plast.alloccols,
+      conn.weights,
+      plast.constraint,plast.method,plast.target)
+  return nothing
+end
+
+
+function sum_and_count_over_rows!(rowsum::Vector{R},nels::Vector{I},
+    M::SparseMatrixCSC{R,I}) where {R,I}
+  Mnz = nonzeros(M) # direct access to weights 
+  fill!(rowsum,zero(R))
+  fill!(nels,zero(I))
+  @inbounds for (i,r) in enumerate(rowvals(M))
+    rowsum[r] += Mnz[i]
+    nels[r] += 1
+  end
+  return nothing
+end
+function sum_and_count_over_cols!(colsum::Vector{R},nels::Vector{I},
+    M::SparseMatrixCSC{R,I}) where {R,I}
+  Mnz = nonzeros(M) # direct access to weights 
+  ncols = size(M,2)
+  @inbounds for col in 1:ncols
+    rang = nzrange(M,col)
+    if isempty(rang)
+      nels[col] = 0
+      colsum[col] = 0.0
+    else
+      nels[col] = length(rang)
+      colsum[col] = sum(view(Mnz,rang))
+    end
+  end
+  return nothing
+end
+
+
+function _het_plasticity_fix_rows!(alloc::Vector{Float64},nel::Vector{Int64},
+    weights::SparseMatrixCSC,
+    constraint::HeterosynapticConstraint,::HetAdditive,::Union{HetBoth,HetIncoming})
+  sum_and_count_over_rows!(alloc,nel,weights)
+  sum_max = constraint.wsum_max
+  @. alloc = (sum_max - alloc )/ nel
+  return nothing
+end
+function _het_plasticity_fix_rows!(alloc::Vector{Float64},nel::Vector{Int64},
+    ::SparseMatrixCSC,::HeterosynapticConstraint,
+    ::HeterosynapticMethod,::HetOutgoing)
+  return nothing
+end
+function _het_plasticity_fix_cols!(alloc::Vector{Float64},nel::Vector{Int64},
+    weights::SparseMatrixCSC,
+    constraint::HeterosynapticConstraint,::HetAdditive,::Union{HetBoth,HetOutgoing})
+  sum_and_count_over_cols!(alloc,nel,weights)
+  sum_max = constraint.wsum_max
+  @. alloc = (sum_max - alloc )/ nel
+  return nothing
+end
+function _het_plasticity_fix_cols!(alloc::Vector{Float64},nel::Vector{Int64},
+    weights::SparseMatrixCSC,
+    constraint::HeterosynapticConstraint,::HeterosynapticMethod,::HetIncoming)
+  return nothing  
+end
+
+function _het_plasticity_apply_fix!( 
+    fixrows::Vector{Float64},fixcols::Vector{Float64},
+    weights::SparseMatrixCSC,constraint::HetStrictSum,
+    ::HetAdditive,::HetBoth)
+  ncols = size(weights,2)
+  rows = rowvals(weights)
+  weights_nonzeros = nonzeros(weights)
+  @inbounds for col in 1:ncols
+    rang = nzrange(weights,col)
+    fixcol=fixcols[col]
+    for r in rang
+      row = rows[r]
+      fix_val = 0.5*(fixrows[row]+fixcol)
+      weights_nonzeros[r] = hardbounds(
+          weights_nonzeros[r]+fix_val,constraint)
+    end
+  end
+end
+
+#=
+slower :-( , and bugged 
+function _het_plasticity_apply_fix!( 
+    fixrows::Vector{Float64},fixcols::Vector{Float64},
+    weights::SparseMatrixCSC,constraint::HetStrictSum,
+    ::HetAdditive,::HetBoth)
+  rows = rowvals(weights)
+  weights_nonzeros = nonzeros(weights)
+  colptr = SparseArrays.getcolptr(weights)
+  @inbounds for i in eachindex(weights_nonzeros)
+    col = searchsortedfirst(colptr,i) # faster ? 
+    row = rows[i]
+    fix_val = 0.5*(fixrows[row]+fixcols[col])
+    weights_nonzeros[i] = hardbounds(
+          weights_nonzeros[i]+fix_val,constraint)
+  end
+end
+=#
+
+
+
+
 # and here is the EASY plasticity, instead of spike triggered
 # ... to rewrite to make it more uniform to the above 
 
