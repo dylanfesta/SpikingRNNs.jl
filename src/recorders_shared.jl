@@ -314,15 +314,15 @@ function raster_png(dt::Float64,rspk::Union{RecSpikes,RecSpikesContent};
     Tend::Float64=0.0,spike_height::Int64=5,
     reorder::Vector{Int64}=Int64[])
   spkt,spkn = get_spiketimes_spikeneurons(rspk)
-  if isempty(spkn) && (Nneurons==-1 || Tend==0.0)
+  if iszero(Tend)
+    Tend = max(rspk.Tend,maximum(spkt)+dt)
+  end
+  if isempty(spkn) && (Nneurons==-1)
     error("""
      No spikes recorded ! 
     Impossible to determine the image size. 
     Please set the parameters `Nneurons` and `Tend`
     """)
-  end
-  Tend = let maxt =  isempty(spkt) ? Tend : maximum(spkt)+dt
-    max(Tend, maxt)
   end
   Nneurons = let maxn = isempty(spkn) ? Nneurons : maximum(spkn)
      max(Nneurons,maxn)
