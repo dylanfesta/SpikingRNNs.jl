@@ -3,6 +3,7 @@ using LinearAlgebra,Statistics,StatsBase,Random,Distributions
 using SparseArrays
 using Colors # to save spike rasters as png
 using DSP # this is to have convolutions to analyze spike trains
+using ExtendableSparse # to optimize adding elements in sparse matrices
 
 
 # all type declarations should go here :-/
@@ -205,6 +206,7 @@ dynamics_step!(ntw::RecurrentNetwork) = dynamics_step!(NaN,ntw)
 include("firingneurons_shared.jl")
 include("firingneurons_plasticity_shared.jl")
 include("firingneurons_heterosynaptic_plasticity.jl")
+include("firingneurons_structural_plasticity.jl")
 include("connectivity_shared.jl")
 include("rate_models.jl")
 include("lif_current.jl")

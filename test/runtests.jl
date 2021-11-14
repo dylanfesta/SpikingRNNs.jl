@@ -494,88 +494,107 @@ end
 
 end
 
-#=
-@testset "single LIF neuron" begin
-  dt = 5E-4
-  myτ = 0.1
-  vth = 12.
-  v_r = -6.123
-  τrefr = 0.5
-  τpcd = 1E10
-  e1 = S.PopLIF(1,myτ,vth,v_r,τrefr,τpcd)
-  pse1 = S.PSLIF(e1)
+@testset "Structural plasticity" begin
+  Ntot = 1000
+  Ttot = 5.0
+  dt = 0.1E-3
+  mydensity = 0.3
+  rates = rand(Uniform(20.,50.),Ntot)
 
-  # one static input 
-  my_input = 14.0
-  pse_in = S.PopInputStatic(pse1,[my_input,])
+  # test 1 : only death, connections expected to drop of half
+  # if death freq is log(2)/Tot  (because half-life is log(2)/freq )
 
-  # empty connection (to avoid errors)
-  mywmat = sparse(zeros(Float64,(1,1)))
-  conn_ee = S.ConnectionLIF(pse1,mywmat,pse1)
-  # that's it, let's make the network
-  myntw = S.RecurrentNetwork(dt,(pse1,),(pse_in,),(conn_ee,) )
+  # dummy neurons
+  nt_all = let sker = S.SKExp(Inf)
+    spkgen = S.SGPoissonMulti(rates)
+    S.NTInputConductance(spkgen,sker,-Inf)
+  end
+  ps_all = S.PSInputConductance(nt_all,Ntot)
 
-  Ttot = 10.0 
+  ## initial weights
+
+  weights_start = S.sparse_constant_wmat(Ntot,Ntot,mydensity,1.0;no_autapses=true)
+
+  ## plasticity rule
+  plast_struct = let  νdeath = log(2)/(Ttot),
+    Δt = 30E-3,
+    ρ = 0.0
+    syngen = S.SynapticGenerationConstant(1.11)
+    srt_type = S.StructuralPlasticityPlain(; 
+      connection_density=ρ,
+      death_rate = νdeath)
+    S.PlasticityStructural(srt_type,syngen,Δt)
+  end
+  ##
+  conn_all=S.ConnectionPlasticityTest(copy(weights_start),plast_struct)
+  pop_all=S.Population(ps_all,(conn_all,ps_all))
+  myntw = S.RecurrentNetwork(dt,pop_all)
+  ## Run
   times = (0:myntw.dt:Ttot)
   nt = length(times)
-  pse1.state_now[1] = v_r
-  myvs = Vector{Float64}(undef,nt)
-  myfiring = BitVector(undef,nt)
+  # reset weights
+  copy!(conn_all.weights,weights_start)
+  wstart = copy(weights_start)
+  density_start = nnz(wstart)/Ntot^2
+  @test isapprox(density_start,mydensity;atol=0.01)
+  # clean up
+  S.reset!(ps_all)
+  S.reset!(conn_all)
+
   for (k,t) in enumerate(times)
     S.dynamics_step!(t,myntw)
-    myvs[k] = pse1.state_now[1]
-    myfiring[k]=pse1.isfiring[1]
+  end
+  wend = conn_all.weights
+  density_end =  nnz(wend)/Ntot^2
+  @test isapprox(density_end*2,mydensity;atol=0.03)
+
+
+  # test 2 : 1/10 of connections survive, but density is preserved
+  # so I use νdeath = log(10)/(Ttot)
+
+  nt_all = let sker = S.SKExp(Inf)
+    spkgen = S.SGPoissonMulti(rates)
+    S.NTInputConductance(spkgen,sker,-Inf)
+  end
+  ps_all = S.PSInputConductance(nt_all,Ntot)
+
+  ## initial weights
+  weights_start = S.sparse_constant_wmat(Ntot,Ntot,mydensity,1.0;no_autapses=true)
+
+  ## plasticity rule
+  plast_struct = let  νdeath = log(10)/(Ttot),
+    Δt = 30E-3,
+    ρ = mydensity,
+    syngen = S.SynapticGenerationConstant(2.0)
+    srt_type = S.StructuralPlasticityPlain(; 
+      connection_density=ρ,
+      death_rate = νdeath)
+    S.PlasticityStructural(srt_type,syngen,Δt)
   end
 
-  # period of first spike
-  @test isapprox(S.expected_period_norefr(e1,my_input), times[findfirst(myfiring)] ;
-    atol = 0.02)
+  conn_all=S.ConnectionPlasticityTest(copy(weights_start),plast_struct)
+  pop_all=S.Population(ps_all,(conn_all,ps_all))
+  myntw = S.RecurrentNetwork(dt,pop_all)
 
-  # number of spikes
-  myper_postrest = S.expected_period_norefr(e1.τ,0.0,e1.v_threshold,my_input)
-  nspk_an = floor(Ttot/(e1.τ_refractory + myper_postrest ) )
-  @test isapprox(nspk_an,count(myfiring) ; atol=2)
+  times = (0:myntw.dt:Ttot)
+  nt = length(times)
+  # reset weights
+  copy!(conn_all.weights,weights_start)
+  wstart = copy(weights_start)
+  density_start = nnz(wstart)/Ntot^2
+  # clean up
+  S.reset!(ps_all)
+  S.reset!(conn_all)
+
+  for (k,t) in enumerate(times)
+    S.dynamics_step!(t,myntw)
+  end
+  wend = conn_all.weights
+  density_end =  nnz(wend)/Ntot^2
+  @test isapprox(density_end,density_start;atol=0.01)
+  n_start = count(==(1.0),nonzeros(wstart)) 
+  @test n_start == nnz(wstart)
+  n_kept = count(==(1.0),nonzeros(wend)) 
+  density_survivors = n_kept/Ntot^2
+  @test isapprox(density_survivors*10,density_start;atol=0.02)
 end
-
-@testset "Hawkes isolated" begin
-  
-  # isolated, non-interacting , processes 
-  # with given input
-
-  myβ = 0.5
-  dt = 10E10 # useless
-  myn = 40 
-  p1 = S.PopulationHawkesExp(myn,myβ)
-  ps1 = S.PSHawkes(p1)
-  conn1 = S.ConnectionHawkes(ps1,sparse(zeros(myn,myn)),ps1)
-  # rates to test
-  myrates = rand(Uniform(0.5,4.0),myn)
-  p1_in = S.PopInputStatic(ps1,myrates)
-  myntw = S.RecurrentNetwork(dt,(ps1,),(p1_in,),(conn1,) )
-  ##
-  nspikes = 100_000
-  # initialize
-  tfake = NaN
-  ps1.state_now .= 1E-2
-  S.send_signal!(tfake,p1_in)
-  # save activity as #idx_fired  , t_fired
-  my_act = Vector{Tuple{Int64,Float64}}(undef,nspikes)
-  for k in 1:nspikes
-    S.dynamics_step!(tfake,myntw)
-    idx_fire = findfirst(ps1.isfiring)
-    t_now = ps1.time_now[1]
-    my_act[k] = (idx_fire,t_now)
-  end
-
-  function hawkes_mean_rates(nneus,actv::Vector)
-    t_end = actv[end][2]
-    _f = function(i)
-      return count(ac->ac[1]==i,actv)/t_end
-    end
-    return map(_f,1:nneus)
-  end
-  myrates_sim = hawkes_mean_rates(myn,my_act)
-  @test all( isapprox.(myrates,myrates_sim ;atol=0.25))
-end
-
-=#

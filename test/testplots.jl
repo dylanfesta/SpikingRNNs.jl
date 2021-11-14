@@ -13,11 +13,17 @@ using InvertedIndices
 
 using Random; Random.seed!(0)
 
+##
 
-# testing utility function
-function sparse_thingies(w::SparseMatrixCSC)
-  return nonzeros(w),rowvals(w),SparseArrays.getcolptr(w)
-end
+using Plots ; theme(:dark)
+w = [ 1. , 1.2, 5, 10, 11.] .+ 1.0
+wtemp = 100.0
+
+probs = @. exp(-w/wtemp)
+probs ./= sum(probs)
+
+bar(w,probs;leg=false,color=:white)
+
 ##
 
 ##

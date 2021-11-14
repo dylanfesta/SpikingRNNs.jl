@@ -4,86 +4,93 @@ using LinearAlgebra,Statistics,StatsBase,Distributions
 using Plots,NamedColors ; theme(:dark) #; plotlyjs();
 using SparseArrays 
 using SpikingRNNs; const global S = SpikingRNNs
-using BenchmarkTools
+using BenchmarkTools,Test
 using ProgressMeter
 
-function onesparsemat(w::Real)
-  return sparse(fill(w,(1,1)))
-end
 
 using Random; Random.seed!(0)
+##
+const Ntot = 1000
+const Ttot = 5.0
+const mydensity = 0.3
+const dt = 0.1E-3
+const rates = rand(Uniform(20.,50.),Ntot)
 
+# dummy neurons
+
+nt_all = let sker = S.SKExp(Inf)
+  spkgen = S.SGPoissonMulti(rates)
+  S.NTInputConductance(spkgen,sker,-Inf)
+end
+ps_all = S.PSInputConductance(nt_all,Ntot)
+
+## initial weights
+weights_start = let ρstart = mydensity
+  ret = S.sparse_constant_wmat(Ntot,Ntot,ρstart,1.0;no_autapses=true)
+  ret
+end
+
+
+# test 3 :  weight-dependent structural plasticity,
+# half synapses are killed in several realizations
+# show weight distribution before and after.
+
+weight_gen_distr = Uniform(5.0,30.0) 
+weights_start = let ρstart = mydensity
+  ret = S.sparse_constant_wmat(Ntot,Ntot,ρstart,1.0;no_autapses=true)
+  retnz = nonzeros(ret)
+  rand!(weight_gen_distr,retnz)
+  ret
+end
+
+## plasticity rule
+plast_struct = let  νdeath = log(10)/(Ttot),
+  temperature = 100.0,
+  Δt = 30E-3,
+  ρ = 0.0,
+  syngen = S.SynapticGenerationConstant(2.0)
+  srt_type = S.StructuralPlasticityWeightDependent(; 
+    connection_density=ρ,
+    death_rate = νdeath, w_temperature = temperature )
+  S.PlasticityStructural(srt_type,syngen,Δt)
+end
 
 ##
 
-const Ttot = 1.0
-const dt = 0.1E-3
-const Nneus = 500
-const rates = rand(Uniform(20.,50.),Nneus)
-
-ps_all = let ratefun(_) = rates 
-  τ = 1E6
-  S.PSInputPoissonFtMulti(ratefun,τ,Nneus)
-end
-
-myplasticity = let νdeath = 1.0,
-  Δt = Ttot/200,
-  ρ = 0.6,
-  w_start = 1.0
-  S.PlasticityStructural(νdeath,Δt,ρ,w_start;no_autapses=true)
-end
-
-weights_start = let ρstart = 0.1
-  S.sparse_constant_wmat(Nneus,Nneus,ρstart,2.0;no_autapses=true)
-end
-
-conn_all=S.ConnectionPlasticityTest(copy(weights_start),myplasticity)
-
+conn_all=S.ConnectionPlasticityTest(copy(weights_start),plast_struct)
 pop_all=S.Population(ps_all,(conn_all,ps_all))
-
 myntw = S.RecurrentNetwork(dt,pop_all)
 
-rec_spikes_all = S.RecSpikes(ps_all,1.5*maximum(rates),Ttot;idx_save=collect(1:100))
-# must save ALL weights, even empty ones
-rec_weights = S.RecWeights(conn_all,5,dt,Ttot; 
-  idx_save=CartesianIndices(weights_start)[:])
-
-
 ## Run
+wstart = copy(weights_start)
 
-times = (0:myntw.dt:Ttot)
-nt = length(times)
-# reset weights
-copy!(conn_all.weights,weights_start)
-# clean up
-S.reset!(rec_spikes_all)
-S.reset!(ps_all)
-S.reset!(conn_all)
-
-@time begin
-  @showprogress 1.0 "network simulation " for (k,t) in enumerate(times)
-    rec_spikes_all(t,k,myntw)
-    rec_weights(t,k,myntw)
+function _one_run()
+  times = (0:myntw.dt:Ttot)
+  # reset weights
+  copy!(conn_all.weights,weights_start)
+  S.reset!(ps_all)
+  S.reset!(conn_all)
+  for t in times
     S.dynamics_step!(t,myntw)
   end
+  wend = conn_all.weights
+  return copy(nonzeros(wend))
 end
 
-##
-
-wtimes,weights_out = S.rebuild_weights(rec_weights)
-
-##
-heatmap(Array(weights_out[1]))
-heatmap(Array(weights_out[end]))
-
-##
-# connectoon density change
-
-function conndens(w::SparseMatrixCSC)
-  return nnz(w) / ( (*)(size(w)...))
+wend_all = []
+nsampl = 3
+@showprogress for k in 1:nsampl
+  push!(wend_all, _one_run())
 end
 
-cdenss = conndens.(weights_out)
+wend_all = vcat(wend_all...)
 
-plot(wtimes,cdenss;leg=false)
-##
+
+histogram(nonzeros(wstart))
+_ = let plt=plot()
+  bins = range(0,35;length=80)
+  h1 = normalize(fit(Histogram,nonzeros(wstart),bins))
+  h2 = normalize(fit(Histogram,wend_all,bins))
+  plot(h1;opacity = 0.5,label="w start")
+  plot!(h2;opacity = 0.5,label="w end")
+end

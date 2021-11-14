@@ -290,51 +290,6 @@ function PatternPresentation(Δt::R,Ttot::R,
   return PatternPresentation(Npatt,patt_seq,patttimes,fullp)
 end
 
-#=
-# but is it a functor ?
-function pattern_functor(Δt::R,Ttot::R,
-    low::R,high::R,
-    npost::Integer,
-    idxs_patternpop::Vector{Vector{Int64}} ; 
-    Δt_pattern_blank::R=0.0,
-    t_pattern_delay::R=0.0) where R<:Real
-  # time vector
-  ts_pattern_start = collect(range(t_pattern_delay,Ttot;step=Δt+Δt_pattern_blank))
-  # make pattern sequence
-  Npatt = length(idxs_patternpop)
-  patt_seq = _generate_uniform_pattern_sequence(Npatt,length(ts_pattern_start)-1)
-  # must add blanks
-  if Δt_pattern_blank > 0.0
-    blank_seq = fill(Npatt+1,length(patt_seq))
-    patt_seq = [transpose(hcat(patt_seq,blank_seq))...]
-    patttimes = repeat(ts_pattern_start;inner=2)[2:end]
-    for i in 2:2:length(patttimes)
-      patttimes[i] -=Δt_pattern_blank
-    end
-  else
-    patttimes = ts_pattern_start
-  end
-  # Generate full scale patterns
-  fullp = fill(low,(npost,Npatt+1))
-  for (i,neuidxs) in enumerate(idxs_patternpop)
-    fullp[neuidxs,i] .= high
-  end
-  # generate the function and return it
-  return _make_pattern_function(patt_seq,patttimes,fullp)
-end
-function pattern_functor_upperlimit(low::R,high::R,
-    Ntot::Integer,
-    idxs_patternpop::Vector{Vector{Int64}}) where R
-  theref = fill(low,Ntot)
-  for idxs_patt in idxs_patternpop
-    theref[idxs_patt] .= high
-  end
-  return function(::Real,i::Integer)
-    return theref[i]
-  end
-end
-=#
-
 ## generalize a little on the Inputs
 
 abstract type SpikeGenerator end
