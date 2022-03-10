@@ -8,8 +8,7 @@ using Random ; Random.seed!(0)
 
 # connections
 function onesparsemat(w::Real)
-  mat=Matrix{Float64}(undef,1,1) ; mat[1,1]=w
-  return sparse(mat)
+  return sparse(cat(w;dims=2))
 end
 
 # testing utility function
