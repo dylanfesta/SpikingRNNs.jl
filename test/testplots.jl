@@ -1,5 +1,3 @@
-# push!(LOAD_PATH, abspath(@__DIR__,".."))
-
 using LinearAlgebra,Statistics,StatsBase,Distributions
 using Plots,NamedColors ; theme(:dark) #; plotlyjs();
 using SparseArrays 
@@ -13,8 +11,24 @@ using InvertedIndices
 
 using Random; Random.seed!(0)
 
+
+function onesparsemat(w::Real)
+  return sparse(cat(w;dims=2))
+end
 ##
 
+τtest = 0.333
+tra = S.Trace(τtest,22)
+
+##
+
+@benchmark S.trace_decay!(tr,dt) setup=(tr=S.Trace(0.1,100);tr.val.=30.0*rand(100) ;dt=20*rand())
+##
+
+@benchmark S.trace_step!(tr,dt) setup=(tr=S.Trace(0.1,100);tr.val.=30.0*rand(100) ;dt=20*rand())
+
+
+##
 using Plots ; theme(:dark)
 w = [ 1. , 1.2, 5, 10, 11.] .+ 1.0
 wtemp = 100.0

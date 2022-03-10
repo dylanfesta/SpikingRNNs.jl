@@ -50,10 +50,13 @@ end
 
 
 # abstract type SpikeGenFunction end # moved to main file
+
 struct SpikeGenNone <: SpikeGenFunction end
 @inline function (sk::SpikeGenNone)(::R) where R
   return zero(R)
 end
+has_spike_gen(::SpikeGenFunction) = true
+has_spike_gen(::SpikeGenNone) = false
 
 struct SpikeGenEIF <: SpikeGenFunction
   vth_exp::Float64
@@ -109,6 +112,8 @@ function reset!(ps::PSLIFConductance)
   return nothing
 end
 
+has_spike_gen(ps::PSLIFConductance) = has_spike_gen(ps.neurontype.spikegen)
+
 # connection 
 # use ConnGeneralIF2
 
@@ -142,22 +147,32 @@ end
 ## define two main functions here
 function local_update!(t_now::Float64,dt::Float64,ps::PSLIFConductance)
 	# computes the update to internal voltage, given the total input
-  # dv =  (v_leak - v ) dt / τ + I dt / Cap
+  # dv =  (v_leak - v ) dt / τ + ...
+  # + spike_generator(v) * dt / τ + I dt / Cap
   dttau =  dt / ps.neurontype.τ_post
   dtCap = dt / ps.neurontype.capacitance
-  @inbounds for i in eachindex(ps.state_now)
-    state_now = ps.state_now[i]
-    state_now += (  (ps.neurontype.v_leak - state_now)*dttau + 
-      ps.input[i]*dtCap +
-      ps.neurontype.spikegen(state_now)*dttau )
-    ps.state_now[i] = state_now
+  if has_spike_gen(ps) # call spikegen only if necessary
+    @inbounds for i in eachindex(ps.state_now)
+      state_now = ps.state_now[i]
+      state_now += (  (ps.neurontype.v_leak - state_now)*dttau + 
+        ps.input[i]*dtCap +
+        ps.neurontype.spikegen(state_now)*dttau )
+      ps.state_now[i] = state_now
+    end
+  else
+    @inbounds for i in eachindex(ps.state_now)
+      state_now = ps.state_now[i]
+      state_now += (  (ps.neurontype.v_leak - state_now)*dttau + 
+        ps.input[i]*dtCap )
+      ps.state_now[i] = state_now
+    end
   end
 	# update spikes and refractoriness, and end
   return _spiking_state_update!(ps.state_now,ps.isfiring,ps.isrefractory,ps.last_fired,
     t_now,ps.neurontype.τ_refractory,ps.neurontype.v_threshold,ps.neurontype.v_reset)
 end
 
-function forward_signal!(t_now::Real,dt::Real,
+function forward_signal!(::Real,dt::Real,
       pspost::PSLIFConductance,conn::ConnGeneralIF2,pspre::PopulationState)
 	post_idxs = rowvals(conn.weights) # postsynaptic neurons
 	weightsnz = nonzeros(conn.weights) # direct access to weights 

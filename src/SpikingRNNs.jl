@@ -5,6 +5,15 @@ using Colors # to save spike rasters as png
 using DSP # this is to have convolutions to analyze spike trains
 using ExtendableSparse # to optimize adding elements in sparse matrices
 
+# small general utility functions
+
+"""
+  hardbounds(x::R,low::R,high::R) where R = min(high,max(x,low))
+
+Applies hard-bounds on scalar `x`  
+"""
+@inline hardbounds(x::R,low::R,high::R) where R = min(high,max(x,low))
+
 
 # all type declarations should go here :-/
 
@@ -197,26 +206,58 @@ end
 
 dynamics_step!(ntw::RecurrentNetwork) = dynamics_step!(NaN,ntw)
 
+## Activity traces as fundamental building blocks
+
+struct Trace
+  val::Vector{Float64}
+  τ::Float64
+  function Trace(τ::Float64,n::Integer)
+    val = fill(0.0,n)
+    return new(val,τ)
+  end
+end
+function nneurons(tra::Trace)
+  return length(tra.val)
+end
+
+Base.getindex(tra::Trace,idx::Integer) = tra.val[idx]
+Base.setindex!(tra::Trace,x::Float64,idx::Integer) = (tra.val[idx] = x)
+
+
+function trace_decay!(tra::Trace,Δt::Float64)
+  tra.val .*= exp(-Δt/tra.τ)
+  return nothing
+end
+
+# slower than trace_decay! , please use trace_decay! instead
+function trace_step!(tra::Trace,dt::Float64)
+  val = tra.val
+	@inbounds @simd for i in eachindex(val)
+		val[i] -= dt*val[i] / tra.τ
+	end
+end
+
+function reset!(tra::Trace)
+  fill!(tra.val,0.0) 
+  tra.t_last[]=0.0
+  return nothing
+end
+
+
 ##
 
-@inline hardbounds(x::R,low::R,high::R) where R = min(high,max(x,low))
-
-##
+include("rate_models.jl")
+include("if_models.jl")
 
 include("firingneurons_shared.jl")
 include("firingneurons_plasticity_shared.jl")
 include("firingneurons_heterosynaptic_plasticity.jl")
 include("firingneurons_structural_plasticity.jl")
 include("connectivity_shared.jl")
-include("rate_models.jl")
 include("lif_current.jl")
 include("lif_exponential.jl")
 include("lif_conductance.jl")
 include("inputs_shared.jl")
 include("recorders_shared.jl")
-
-#=
-include("./hawkes.jl")
-=#
 
 end # of SpikingRNNs module 

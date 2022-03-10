@@ -84,7 +84,7 @@ function forward_signal!(t_now::Real,dt::Real,
 end
 
 
-function forward_signal!(t_now::Real,dt::Real,
+function forward_signal!(::Real,dt::Real,
       pspost::PSGeneralCurrentIFType,
       conn::ConnGeneralIF,pspre::PSSpikingType)
 	post_idxs = rowvals(conn.weights) # postsynaptic neurons
