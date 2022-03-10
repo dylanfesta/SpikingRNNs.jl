@@ -499,9 +499,9 @@ function _rand_by_thinning(t_start::Real,get_rate::Function,get_rate_upper::Func
   t = t_start 
   while (t-t_start)<Tmax # Tmax is upper limit, if rate too low 
     (rup::Float64) = get_rate_upper(t)
-    Δt = rand(Exponential())./rup
+    Δt = -log(rand())./rup # rand(Exponential())./rup
     t = t+Δt
-    u = rand(Uniform(0.0,rup))
+    u = rand()*rup # rand(Uniform(0.0,rup))
     (_r::Float64) = get_rate(t) 
     if u <= _r
       return t

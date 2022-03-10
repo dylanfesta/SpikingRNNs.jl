@@ -4,10 +4,13 @@
 # for connectivity
 
 """
-        lognorm_reparametrize(m,std) -> distr::LogNormal
-# parameters
-  + `m`   sample mean
-  + `std` sample std
+    lognorm_reparametrize(m::Real,std::Real) -> d::LogNormal
+
+# Parameters
+  + `m::Real`   sample mean
+  + `std::Real` sample std
+# Returns
+  + `d::Distributions.LogNormal`
 """
 function lognorm_reparametrize(m::Real,std::Real)
     vm2= (std/m)^2

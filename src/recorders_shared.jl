@@ -308,7 +308,6 @@ function get_psth(idxs_neu::AbstractVector{<:Integer},dt::Float64,spktimes::Vect
  return tmid,ret2 ./ dt
 end
 
-
 function raster_png(dt::Float64,rspk::Union{RecSpikes,RecSpikesContent};
     Nneurons::Int64=-1,
     Tend::Float64=0.0,spike_height::Int64=5,

@@ -21,12 +21,14 @@ end
 ##
 dt = 0.1E-3
 Ttot = 60.0 
+# post-pre
 function ps_trains(rate::R,Δt_ro::R,Ttot::R;
     tstart::R = 0.05,popτ::R=1E6) where R
   post = collect(range(tstart,Ttot; step=inv(rate)))
   pre = post .- Δt_ro
   return S.PSFixedSpiketrain([pre,post],popτ)
 end
+# triplets version: post pre , post post
 function ps_trains(rate::R,Δt_ro::R,Δt_oo::R,Ttot::R;
     tstart::R = 0.05,popτ::R=1E6) where R
   _post1 = collect(range(tstart,Ttot-2Δt_oo; step=inv(rate)))

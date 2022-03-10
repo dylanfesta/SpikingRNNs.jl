@@ -45,7 +45,7 @@ end
 
 ## plasticity rule
 plast_struct = let  νdeath = log(10)/(Ttot),
-  temperature = 100.0,
+  temperature = 10.0,
   Δt = 30E-3,
   ρ = 0.0,
   syngen = S.SynapticGenerationConstant(2.0)
@@ -91,6 +91,18 @@ _ = let plt=plot()
   bins = range(0,35;length=80)
   h1 = normalize(fit(Histogram,nonzeros(wstart),bins))
   h2 = normalize(fit(Histogram,wend_all,bins))
+  plot(h1;opacity = 0.5,label="w start")
+  plot!(h2;opacity = 0.5,label="w end")
+end
+
+## why not just one ?
+
+histogram(nonzeros(wstart))
+_ = let plt=plot()
+  wend_ = _one_run()
+  bins = range(0,35;length=80)
+  h1 = fit(Histogram,nonzeros(wstart),bins)
+  h2 = fit(Histogram,wend_,bins)
   plot(h1;opacity = 0.5,label="w start")
   plot!(h2;opacity = 0.5,label="w end")
 end
