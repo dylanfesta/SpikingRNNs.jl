@@ -30,7 +30,8 @@ Base.broadcastable(t::NeuronType)=Ref(t)
 
 # Dynamical state and memory allocation for a particular group of neurons
 # n is always the number of neurons, and neurontype is the neuron type
-abstract type PopulationState{NT<:NeuronType} end
+#abstract type PopulationState{NT<:NeuronType} end
+abstract type PopulationState end
 nneurons(ps::PopulationState) = ps.n
 
 
@@ -80,7 +81,7 @@ end
   return N
 end
 
-struct PSSimpleInput{In} <: PopulationState{In}
+struct PSSimpleInput{In} <: PopulationState
   neurontype::In # not really a neuron, but I keep the name for consistency
   n::Int64
   function PSSimpleInput(in::N) where N<:NeuronType

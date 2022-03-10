@@ -639,7 +639,7 @@ struct NTConductanceInputInhibitoryStabilization <:NeuronType
   τglo::Float64
   τloc::Float64
 end
-struct PSConductanceInputInhibitionStabilization <: PopulationState{NTConductanceInputInhibitoryStabilization}
+struct PSConductanceInputInhibitionStabilization <: PopulationState#{NTConductanceInputInhibitoryStabilization}
   neurontype::NTConductanceInputInhibitoryStabilization
   n::Int64 # size of stabilized E population
   post_loc_traces::Vector{Float64}

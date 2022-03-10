@@ -7,6 +7,9 @@ abstract type SomaticKernel end
 abstract type IFFiring end
 
 
+# WARNING !!!
+struct ConnectionIF end # TO DO!
+
 # somatic kernels are leak, and leakexp
 
 struct SKLeak <: SomaticKernel
@@ -105,6 +108,8 @@ function process_spikes!(t_now::Real,
 	end
   return nothing
 end
+
+
 
 #= 
  TO DOS

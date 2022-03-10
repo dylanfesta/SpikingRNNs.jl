@@ -1,5 +1,5 @@
 
-struct PSRate{P} <: PopulationState{P}
+struct PSRate{P} <: PopulationState
   n::Int64 # population size
   neurontype::P
   state_now::Vector{Float64}
