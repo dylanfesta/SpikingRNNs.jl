@@ -15,6 +15,59 @@ Applies hard-bounds on scalar `x`
 @inline hardbounds(x::R,low::R,high::R) where R = min(high,max(x,low))
 
 
+"""
+  next_poisson_spiketime(t_current::Float64,rate::Float64) -> t_next::Float64
+
+  Returns next spike after current time `t_current` in a random Poisson process.
+  with rate `rate`.
+"""
+@inline function next_poisson_spiketime(t_current::Float64,rate::Float64)
+  return  t_current-log(rand())./rate
+end
+
+
+"""
+  next_poisson_spiketime_from_function(t_current::Float64,fun_rate::Function,fun_rate_upper::Function; 
+      Tmax::Float64=0.0,nowarning::Bool=false) -> Float64
+  
+  Returns the next spiketime in a Poisson process with time-varying rate. The rate variation is given by function `fun_rate`.
+  
+  See e.g.  Laub,Taimre,Pollet 2015
+  
+  # Arguments   
+  + `t_current::Float64` : current time 
+  + `fun_rate::Function` : `fun_rate(t::Float64) -> r::Float64` returns rate at time `t` 
+  + `fun_rate_upper::Function` : upper limit to the function above. Strictly decreasing in `t`
+     must be as close as possible to the `fun_rate` for efficiency
+  + `Tmax::Float64` : upper threshold for spike proposal, maximum interval that can be produced    
+  + `nowarning::Bool` : does not throw a warning when `Tmax`` is reached
+"""
+function next_poisson_spiketime_from_function(t_current::Float64,fun_rate::Float64,fun_rate_upper::Float64; 
+    Tmax::Float64=50.0,nowarning::Bool=false)
+  t = t_start 
+  while (t-t_start)<Tmax 
+    (rup::Float64) = get_rate_upper(t)
+    Δt = -log(rand())./rup # rand(Exponential())./rup
+    t = t+Δt
+    u = rand()*rup # rand(Uniform(0.0,rup))
+    (_r::Float64) = get_rate(t) 
+    if u <= _r
+      return t
+    end
+  end
+  # if we are above Tmax, just return upper limit
+  if !nowarning
+    @warn "Upper limit reached, input firing below $(inv(Tmax)) Hz"
+  end
+  return Tmax + t_start
+end
+
+
+# legacy , to erase when possible!
+_rand_by_thinning(t_start::Real,get_rate::Function,get_rate_upper::Function;
+    Tmax=50.0,nowarning::Bool=false) = next_poisson_spiketime_from_function(t_start,get_rate,
+      get_rate_upper;Tmax=Tmax,nowarning=nowarning)
+
 # all type declarations should go here :-/
 
 abstract type NeuronType end
@@ -36,13 +89,13 @@ nneurons(ps::PopulationState) = ps.n
 
 
 # Everything related to connection (including plasticity, etc)
-abstract type Connection{N} end
+abstract type Connection end
 abstract type PlasticityRule end
 
 struct NoPlasticity <: PlasticityRule end
 reset!(::NoPlasticity) = nothing
 
-struct FakeConnection{N,PL<:NTuple{N,PlasticityRule}} <: Connection{N}
+struct FakeConnection{N,PL<:NTuple{N,PlasticityRule}} <: Connection
   weights::SparseMatrixCSC{Float64,Int64}
   plasticities::PL
   function FakeConnection()
@@ -51,7 +104,7 @@ struct FakeConnection{N,PL<:NTuple{N,PlasticityRule}} <: Connection{N}
   end
 end
 
-struct BaseConnection{N,PL<:NTuple{N,PlasticityRule}} <: Connection{N}
+struct BaseConnection{N,PL<:NTuple{N,PlasticityRule}} <: Connection
   weights::SparseMatrixCSC{Float64,Int64}
   plasticities::PL
 end
@@ -63,7 +116,7 @@ end
 # BUT neurons do not exchange signals of any kind
 # this works well in tandem with input neurons with specific spike times
 # to test plasticity rules
-struct ConnectionPlasticityTest{N,PL<:NTuple{N,PlasticityRule}} <: Connection{N}
+struct ConnectionPlasticityTest{N,PL<:NTuple{N,PlasticityRule}} <: Connection
   weights::SparseMatrixCSC{Float64,Int64}
   plasticities::PL
 end
@@ -77,8 +130,8 @@ function reset!(conn::ConnectionPlasticityTest)
 end
 
 
-@inline function n_plasticity_rules(::Connection{N}) where N
-  return N
+@inline function n_plasticity_rules(co::Connection)
+  return length(co.plasticities)
 end
 
 struct PSSimpleInput{In} <: PopulationState
@@ -249,6 +302,7 @@ end
 
 include("rate_models.jl")
 include("if_models.jl")
+#include("if_inputs.jl")
 
 include("firingneurons_shared.jl")
 include("firingneurons_plasticity_shared.jl")

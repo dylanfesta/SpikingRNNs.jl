@@ -124,42 +124,6 @@ function make_sparse_weights(npost::Integer,npre::Integer,p::Real,weigth_value::
     scal=scal,noself=noself,rowsum=rowsum)
 end
 
-# not needed with new Poisson input types!
-# """
-#     wmat_train_assemblies_protocol(Nneus::Integer,p::Real; scal::Float64=1.0) 
-#       -> (weights::SparseMatrixCSC,assembly_dictionary::Dict)
-
-#   # Arguments
-#   + Npost::Integer : number of postsynaptic neurons
-#   + Nassemblies::Integer : number of assemblies to train
-#   + p_assembly::Real : probability for a neuron to be in any assembly
-#   + scal::Real=1.0 : connection weights
-
-#   # Outputs
-#   + weights : sparse weight matrix
-#   + assembly_list::Vector{NamedTuple{(:neupost,:neupre),Vector{Int64,Vector{Int64}}}}
-#     element `i` contains the pre and post neurons associated to assembly `i`
-# """
-# function wmat_train_assemblies_protocol(Npost::Integer,Nassemblies::Integer,
-#     p_assembly::Real;scal::Float64=1.0)
-#   # unoptimized... but called only once
-#   post_neus = [findall(rand(Npost) .< p_assembly) for _ in 1:Nassemblies]
-#   c = 0
-#   pre_neus = map(post_neus) do _po
-#     _ln = length(_po)
-#     ret = c .+ collect(1:_ln)
-#     c += _ln
-#     return ret
-#   end
-#   _pre_neus_all = vcat(pre_neus...)
-#   wmat = sparse(vcat(post_neus...),_pre_neus_all,scal,
-#     Npost,length(_pre_neus_all)) # include total matrix size
-#   assembly_list = map(zip(post_neus,pre_neus)) do (_post,_pre)
-#     (neupost=_post,neupre=_pre)
-#   end
-#   return wmat,assembly_list
-# end
-
 
 # to order assemblies (no idea where to place this function)
 function order_by_pattern_idxs(pattern_idxs::Vector{Vector{Int64}},

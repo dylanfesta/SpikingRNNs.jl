@@ -9,7 +9,7 @@ abstract type PSGeneralCurrentIFType{NT} <: PSSpikingType{NT} end
 
 # connection for IF neurons 
 # must keep track of internal trace (current/conductance)
-struct ConnGeneralIF{N,TP<:NTuple{N,PlasticityRule}} <: Connection{N}
+struct ConnGeneralIF{N,TP<:NTuple{N,PlasticityRule}} <: Connection
   weights::SparseMatrixCSC{Float64,Int64}
   post_trace::Vector{Float64}
   plasticities::TP
@@ -30,7 +30,7 @@ function reset!(conn::ConnGeneralIF)
 end
 
 # or two internal traces (plus and minus)
-struct ConnGeneralIF2{N,TP<:NTuple{N,PlasticityRule}} <: Connection{N}
+struct ConnGeneralIF2{N,TP<:NTuple{N,PlasticityRule}} <: Connection
   weights::SparseMatrixCSC{Float64,Int64}
   post_trace1::Vector{Float64}
   post_trace2::Vector{Float64}
@@ -60,7 +60,7 @@ end
 # if pre spikes, and *any* weight is present
 # then  post will also spike (no delay for now)
 # it cannot be plastic, but one can still modify the connectivity matrix
-struct ConnSpikeTransfer{N,TP<:NTuple{N,PlasticityRule}} <: Connection{N}
+struct ConnSpikeTransfer{N,TP<:NTuple{N,PlasticityRule}} <: Connection
   weights::SparseMatrixCSC{Float64,Int64}
   plasticities::TP
   function ConnSpikeTransfer(weights::SparseMatrixCSC)
