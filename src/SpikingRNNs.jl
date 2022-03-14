@@ -35,22 +35,22 @@ end
   See e.g.  Laub,Taimre,Pollet 2015
   
   # Arguments   
-  + `t_current::Float64` : current time 
+  + `t_start::Float64` : current time 
   + `fun_rate::Function` : `fun_rate(t::Float64) -> r::Float64` returns rate at time `t` 
   + `fun_rate_upper::Function` : upper limit to the function above. Strictly decreasing in `t`
      must be as close as possible to the `fun_rate` for efficiency
   + `Tmax::Float64` : upper threshold for spike proposal, maximum interval that can be produced    
   + `nowarning::Bool` : does not throw a warning when `Tmax`` is reached
 """
-function next_poisson_spiketime_from_function(t_current::Float64,fun_rate::Float64,fun_rate_upper::Float64; 
+function next_poisson_spiketime_from_function(t_start::Float64,fun_rate::Float64,fun_rate_upper::Float64; 
     Tmax::Float64=50.0,nowarning::Bool=false)
   t = t_start 
   while (t-t_start)<Tmax 
-    (rup::Float64) = get_rate_upper(t)
+    (rup::Float64) = fun_rate_upper(t)
     Δt = -log(rand())./rup # rand(Exponential())./rup
     t = t+Δt
     u = rand()*rup # rand(Uniform(0.0,rup))
-    (_r::Float64) = get_rate(t) 
+    (_r::Float64) = fun_rate(t) 
     if u <= _r
       return t
     end
@@ -302,7 +302,7 @@ end
 
 include("rate_models.jl")
 include("if_models.jl")
-#include("if_inputs.jl")
+include("if_inputs.jl")
 
 include("firingneurons_shared.jl")
 include("firingneurons_plasticity_shared.jl")

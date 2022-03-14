@@ -6,7 +6,7 @@ abstract type SomaticKernel end
 #abstract type SynapticKernel end  
 abstract type IFFiring end
 
-abstract type AbstractConnectionIF <: Connection end
+abstract type AbstractConnectionIF{S} <: Connection end
 
 struct SKLeak <: SomaticKernel
   v_leak::Float64
@@ -67,16 +67,15 @@ function forward_signal!(::Real,dt::Real,
 		_posts_nz = nzrange(conn.weights,_pre) # indexes of corresponding pre in nz space
 		@inbounds for _pnz in _posts_nz
 			post_idx = post_idxs[_pnz]
-      synaptic_kernel_trace_update!(conn,weightsnz[_pnz],post_idx)
+      synaptic_kernel_trace_update!(conn.synaptic_kernel,weightsnz[_pnz],post_idx)
 		end
 	end
 	# add the currents to postsynaptic input vector ONLY non-refractory neurons
   # the term added depends on the neuron type, in general it is a function of the 
   # postsynaptic voltage
   add_signal_to_nonrefractory!(pspost.input,conn,pspost.isrefractory,pspost.state_now)
-
   # finally, all postsynaptic conductances decay in time
-  kernel_decay!(dt,conn)
+  kernel_decay!(dt,conn.synaptic_kernel)
   return nothing
 end
 
@@ -100,7 +99,7 @@ function process_spikes!(t_now::Real,ps::PSIFNeuron{SK,F}) where {SK,F<:IFFFixed
 end
 
 
-struct ConnectionIF{S<:SynapticKernel}
+struct ConnectionIF{S<:SynapticKernel} <: AbstractConnectionIF{S}
   synaptic_kernel::S
   weights::SparseMatrixCSC{Float64,Int64}
   plasticities::PL where {M,PL<:NTuple{M,PlasticityRule}}
@@ -145,50 +144,52 @@ end
   trace_decay!(dt,sk.trace_minus)  
 end
 
-@inline function synaptic_kernel_trace_update!(conn::ConnectionIF{SyKCurrentExponential},w::Float64,idx::Integer)
-  conn.trace[idx] += w
+@inline function synaptic_kernel_trace_update!(syk::SyKCurrentExponential,w::Float64,idx::Integer)
+  syk.trace[idx] += w
   return nothing
 end
-@inline function synaptic_kernel_trace_update!(conn::ConnectionIF{SyKConductanceExponential},w::Float64,idx::Integer)
-  conn.trace[idx] += w
+@inline function synaptic_kernel_trace_update!(syk::SyKConductanceExponential,w::Float64,idx::Integer)
+  syk.trace[idx] += w
   return nothing
 end
-@inline function synaptic_kernel_trace_update!(conn::ConnectionIF{SyKConductanceDoubleExponential},w::Float64,idx::Integer)
-  conn.trace_plus[idx] += w
-  conn.trace_minus[idx] += w
+@inline function synaptic_kernel_trace_update!(syk::SyKConductanceDoubleExponential,w::Float64,idx::Integer)
+  syk.trace_plus[idx] += w
+  syk.trace_minus[idx] += w
   return nothing
 end
 
 
 @inline function add_signal_to_nonrefractory!(inputs::Vector{Float64},
-      conn::ConnectionIF{SyKCurrentExponential},isrefractory::BitArray{1},::Vector)
+      conn::AbstractConnectionIF{SyKCurrentExponential},isrefractory::BitArray{1},::Vector)
+  syk = conn.synaptic_kernel
   if conn.is_excitatory
     @inbounds @simd for i in eachindex(inputs) 
     if ! isrefractory[i]
-      inputs[i] .+= conn.trace[i]    
+      inputs[i] .+=syk.trace[i]    
       end
     end
   else
     @inbounds @simd for i in eachindex(inputs) 
     if ! isrefractory[i]
-      inputs[i] .-= conn.trace[i]    
+      inputs[i] .-=syk.trace[i]    
       end
     end
   end
   return nothing
 end
 @inline function add_signal_to_nonrefractory!(inputs::Vector{Float64},
-      conn::ConnectionIF{SyKConductanceExponential},isrefractory::BitArray{1},
+      conn::AbstractConnectionIF{SyKConductanceExponential},isrefractory::BitArray{1},
       state_now::Vector{Float64})
+  syk = conn.synaptic_kernel
   @inbounds @simd for i in eachindex(inputs) 
   if ! isrefractory[i]
-    inputs[i] .+= conn.trace[i]*(conn.v_reversal-state_now[i])
+    inputs[i] .+= syk.trace[i]*(syk.v_reversal-state_now[i])
     end
   end
   return nothing
 end
 @inline function add_signal_to_nonrefractory!(inputs::Vector{Float64},
-      conn::ConnectionIF{SyKConductanceDoubleExponential},isrefractory::BitArray{1},
+      syk::AbstractConnectionIF{SyKConductanceDoubleExponential},isrefractory::BitArray{1},
       state_now::Vector{Float64})
   error("NOT DONE YET!")
   return nothing

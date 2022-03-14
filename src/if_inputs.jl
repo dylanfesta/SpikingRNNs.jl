@@ -3,7 +3,7 @@
 
 
 
-struct ConnectionIFInput{S<:SynapticKernel}
+struct ConnectionIFInput{S<:SynapticKernel} <: AbstractConnectionIF{S}
   synaptic_kernel::S
   weights::Vector{Float64}
 end
@@ -65,7 +65,7 @@ function forward_signal!(t_now::Real,::Real,
 end
 
 # Now exact spiking inputs
-abstract type AbstractIFInputSpikes <: PopulationState
+abstract type AbstractIFInputSpikes <: PopulationState end
 
 
 struct IFInputSpikesConstant{V<:Union{Float64,Vector{Float64}}} <: AbstractIFInputSpikes
@@ -74,80 +74,74 @@ struct IFInputSpikesConstant{V<:Union{Float64,Vector{Float64}}} <: AbstractIFInp
 end
 struct IFInputSpikesFunScalar <: AbstractIFInputSpikes
   f::Function # f(::Float64) -> Float64 
+  f_upper::Function
   t_last_spike::Vector{Float64}
 end
 struct IFInputSpikesFunVector <: AbstractIFInputSpikes
-  f::Function # f(::Float64) -> Array{Float64}
+  f::Function # f(::Float64,idx::Integer) -> Float64
+  f_upper::Function
+  t_last_spike::Vector{Float64}
+end
+
+struct IFInputSpikesTrain <: AbstractIFInputSpikes
+  train::Vector{Vector{Float64}}
+  counter::Vector{Int64}
   t_last_spike::Vector{Float64}
 end
 
 
-
 # Forward signals that arrive in the form of spikes 
-function forward_signal!(::Real,dt::Real,
-      pspost::PSIFNeuron,conn::ConnectionIFInput,pspre::AbstractIFInputSpikes)
-	
-  for _pre in findall(pspre.isfiring)
-		_posts_nz = nzrange(conn.weights,_pre) # indexes of corresponding pre in nz space
-		@inbounds for _pnz in _posts_nz
-			post_idx = post_idxs[_pnz]
-      synaptic_kernel_trace_update!(conn,weightsnz[_pnz],post_idx)
-		end
-	end
-	# add the currents to postsynaptic input vector ONLY non-refractory neurons
-  # the term added depends on the neuron type, in general it is a function of the 
-  # postsynaptic voltage
-  add_signal_to_nonrefractory!(pspost.input,conn,pspost.isrefractory,pspost.state_now)
-
-  # finally, all postsynaptic conductances decay in time
-  kernel_decay!(dt,conn)
-  return nothing
-end
-
-
-# HERE FOR REF!
 function forward_signal!(t_now::Real,dt::Real,
-      pspost::PSIFNeuron,conn::ConnectionIFInput,
-      pspre::PSInputPoissonConductanceExact)
-  preneu = pspre.neurontype
-  pre_v_reversal = preneu.v_reversal
-  pre_synker = preneu.synaptic_kernel
-  sgen = pspre.neurontype.spikegenerator
-  # traces time decay (here or at the end? meh)
-  trace_decay!(dt,pspre)
-  # if t_now moved past a spiketime...
-  @inbounds for i in eachindex(pspre.firingtimes)
-    tspike = pspre.firingtimes[i]
+      pspost::PSIFNeuron,conn::ConnectionIFInput,pspre::AbstractIFInputSpikes)
+  for i in eachindex(pspre.t_last_spike)
+    # counts number of spikes between stored last spike, and t_now
+    tspike = pspre.t_last_spike[i]
     _n_spikes = 0
-    # count spike occurrences
     while tspike <= t_now
       _n_spikes += 1
-      tspike = _get_spiketime_update(tspike,sgen,i)
+      tspike = get_next_input_spiketime(tspike,pspre,i)
     end
-    # increment traces of spiking neurons
-    # ASSUMING IT IS LINEAR
+    # applies spikes
     if _n_spikes > 0
-    # function defined in lif_conductance.jl
-      trace_spike_update!(_n_spikes*pspre.input_weights[i],
-          pspre.trace1,pspre.trace2,pre_synker,i)
-      pspre.firingtimes[i]=tspike
+      synaptic_kernel_trace_update!(conn.synaptic_kernel,_n_spikes*conn.weights[i],i)
+      pspre.t_last_spike[i] = tspike
     end
   end
-  @inbounds @simd for i in eachindex(pspost.input)
-    if ! pspost.isrefractory[i]
-    # function defined in lif_conductance.jl
-    postsynaptic_kernel_update!(pspost.input,pspost.state_now,
-            pspre.trace1,pspre.trace2,pre_synker,pre_v_reversal,i)
-    end
-  end
+  add_signal_to_nonrefractory!(pspost.input,conn,pspost.isrefractory,pspost.state_now)
+  kernel_decay!(dt,conn.synaptic_kernel)
   return nothing
 end
 
 
+@inline function get_next_input_spiketime(tnow::Real,ps::IFInputCurrentConstant{Float64},::Integer)
+  return tnow + rand(Exponential())/ps.rate
+end
+@inline function get_next_input_spiketime(tnow::Real,ps::IFInputCurrentConstant{Vector{Float64}},i::Integer)
+  return tnow + rand(Exponential())/ps.rate[i]
+end
+@inline function get_next_input_spiketime(tnow::Real,ps::IFInputSpikesFunScalar,::Integer)
+  return next_poisson_spiketime_from_function(tnow,ps.f,ps.f_upper)
+end
+@inline function get_next_input_spiketime(tnow::Real,ps::IFInputSpikesFunVector,i::Integer)
+  f(t) = ps.f(t,i)
+  f_upper(t) = ps.f_upper(t,i)
+  return next_poisson_spiketime_from_function(tnow,f,f_upper)
+end
 
-#=
 
-TO DO : spiking inputs 
 
-TO DO : add global inhibition over here, as well
-=#
+# TO DO !
+
+function get_next_input_spiketime(tnow::Real,ps::IFInputSpikesTrain,i::Integer)
+  # note that t_current_spike is expected to be 
+  # sg.trains[i][counter[i]] (before counter update)
+  c = ps.counter[i]
+  if checkbounds(Bool,ps.trains[i],c+1) 
+    ps.counter[i] = c+1    # move counter forward
+    return ps.trains[i][c+1] # return next spike time
+  else
+    return Inf
+  end 
+end
+
+# TO DO : global inhibition
