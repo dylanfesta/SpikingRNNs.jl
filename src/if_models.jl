@@ -23,8 +23,9 @@ end
   return  (v-sk.v_leak) + sk.τ*exp((v-sk.vth)/sk.τ)
 end
 
+
 # Spiking mechanism : fixed threshold
-struct IFFFixedThreshold
+struct IFFFixedThreshold <: IFFiring
   v_threshold::Float64
   v_reset::Float64
   t_refractory::Float64
@@ -42,6 +43,42 @@ struct PSIFNeuron{So<:SomaticKernel,F<:IFFiring} <: PSSpiking
 	isfiring::BitArray{1}
 	isrefractory::BitArray{1}
 end
+function reset!(ps::PSIFNeuron)
+  fill!(ps.input,0.0)
+  fill!(ps.last_fired,-Inf)
+  fill!(ps.isfiring,false)
+  fill!(ps.isrefractory,false)
+  return nothing
+end
+
+
+# neuron with normal firing kernel
+"""
+    PSIFNeuron(n::Integer,τ::R,cap::R,
+        v_threshold::R,v_reset::R,v_leak::R,t_refractory::R) where R
+
+Generates a population of leaky integrate and fire neurons.
+
+# Arguments
+  + `n` : number of neurons
+  + `τ` : dynamics time constant
+  + `cap` : capacitance
+  + `v_threshold` : treshold for action potential emission
+  + `v_reset` : reset value after firing
+  + `v_leak` : leak potential
+  + `t_refractory` : duration of refractory period
+"""
+function PSIFNeuron(n::Integer,τ::R,cap::R,
+    v_threshold::R,v_reset::R,v_leak::R,t_refractory::R) where R
+  input = fill(0.0,n)
+  lastfired = fill(-Inf,n)
+  isfiring = falses(n)
+  isrefractory = falses(n)
+  skern = SKLeak(v_leak)
+  firproc = IFFFixedThreshold(v_threshold,v_reset,t_refractory)
+  return PSIFNeuron(τ,cap,skern,firproc,n,input,lastfired,isfiring,isrefractory)
+end
+
 
 function local_update!(t_now::Float64,dt::Float64,ps::PSIFNeuron)
 	# computes the update to internal voltage, given the total input
@@ -98,7 +135,6 @@ function process_spikes!(t_now::Real,ps::PSIFNeuron{SK,F}) where {SK,F<:IFFFixed
   return nothing
 end
 
-
 struct ConnectionIF{S<:SynapticKernel} <: AbstractConnectionIF{S}
   synaptic_kernel::S
   weights::SparseMatrixCSC{Float64,Int64}
@@ -108,6 +144,16 @@ function reset!(conn::ConnectionIF)
   reset!(conn.synaptic_kernel)
   reset!.(conn.plasticities)
 end
+
+# TO DO  : nice constructor with default values
+function ConnectionIF(n::Integer,τ::Float64,
+    weights::Union{Matrix{Float64},SparseMatrixCSC{Float64,Int64}};
+    is_excitatory::Bool=true)   
+  return nothing  # ZZZZZZZZZZZZZZZZZZZZZZZZZZzz
+end
+
+#function ConnectionIF_conductance
+#function ConnectionIF_conductance_double
 
 struct SyKCurrentExponential <: SynapticKernel
   τ::Float64
@@ -132,8 +178,9 @@ struct SyKConductanceDoubleExponential <: SynapticKernel
 end
 reset!(sk::SyKConductanceDoubleExponential) = ( reset!(sk.trace_plus) ; reset!(sk.trace_minus))
 
-# this is used for external input currents
-struct SyKNothing <: SynapticKernel  end
+# this is used for external input currents, the non-spike-based inputs
+struct SyKNone <: SynapticKernel  end
+reset!(::SyKNone) = nothing
 
 @inline function kernel_decay!(dt::Real,
     sk::Union{SyKCurrentExponential,SyKConductanceExponential})

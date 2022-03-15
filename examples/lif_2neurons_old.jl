@@ -8,37 +8,34 @@ function onesparsemat(w::Real)
 end
 
 ##
-const dt = 1E-3
+dt = 1E-3
 # two LIF neurons, E and I
-const τe = 0.2 # time constant for dynamics 
-const τi = 0.1
-const cap = 1.0 # capacitance
-const vth = 10.  # action-potential threshold 
-const vreset = -5.0 # reset potential
-const vleak = -5.0 # leak potential
-const τrefre = 0.3 # refractoriness
-const τrefri = 0.1 
-const τpcd = 0.2 # synaptic kernel decay
+myτe = 0.2
+myτi = 0.1
+vth = 10.
+v_r = -5.0
+τrefre = 0.3 # refractoriness
+τrefri = 0.1 
+τpcd = 0.2 # post synaptic current decay
+e1 = S.NTLIF(myτe,vth,v_r,τrefre,τpcd)
+i1 = S.NTLIF(myτi,vth,v_r,τrefri,τpcd)
+pse1 = S.PSLIF(e1,1)
+psi1 = S.PSLIF(i1,1)
 
-const ps_e = S.PSIFNeuron(1,τe,cap,vth,vreset,vleak,τrefre)
-const ps_i = S.PSIFNeuron(1,τi,cap,vth,vreset,vleak,τrefri)
-
-# define static inputs
-const h_in_e =10.1
-const h_in_i =9.0
-const in_e = S.IFInputCurrentConstant([h_in_e,])
-const in_i = S.IFInputCurrentConstant([h_in_i,])
-
-
-# connections
-const conn_in_e = S.ConnectionIFInput([1.,])
-const conn_in_i = S.ConnectionIFInput([1.,])
+# one static input 
+h_in_e = onesparsemat(10.1)
+h_in_i = onesparsemat(9.0)
+in_type = S.InputSimpleOffset()
+in_state_e = S.PSSimpleInput(in_type)
+in_state_i = S.PSSimpleInput(in_type)
 
 # connect E <-> I , both ways, but no autapses 
 # i connections should be negative!
 
 conn_ie = S.ConnLIF(onesparsemat(1.0))
 conn_ei = S.ConnLIF(onesparsemat(-0.8))
+conn_in_e = S.BaseConnection(h_in_e)
+conn_in_i = S.BaseConnection(h_in_i)
 
 # connected populations
 

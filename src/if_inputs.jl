@@ -1,14 +1,10 @@
 
-
-
-
-
 struct ConnectionIFInput{S<:SynapticKernel} <: AbstractConnectionIF{S}
   synaptic_kernel::S
   weights::Vector{Float64}
 end
 
-
+ConnectionIFInput(weights::Vector{Float64}) = ConnectionIFInput(SyKNone(),weights)
 
 # deals with inputs that are just currents
 struct IFInputCurrentConstant{V<:Union{Float64,Vector{Float64}}} <: PopulationState
@@ -67,7 +63,6 @@ end
 # Now exact spiking inputs
 abstract type AbstractIFInputSpikes <: PopulationState end
 
-
 struct IFInputSpikesConstant{V<:Union{Float64,Vector{Float64}}} <: AbstractIFInputSpikes
   rate::V
   t_last_spike::Vector{Float64}
@@ -82,13 +77,21 @@ struct IFInputSpikesFunVector <: AbstractIFInputSpikes
   f_upper::Function
   t_last_spike::Vector{Float64}
 end
-
 struct IFInputSpikesTrain <: AbstractIFInputSpikes
   train::Vector{Vector{Float64}}
   counter::Vector{Int64}
   t_last_spike::Vector{Float64}
 end
 
+function reset!(in::AbstractIFInputSpikes)
+  fill!(in.t_last_spike,-Inf)
+  return nothing
+end
+function reset!(in::IFInputSpikesTrain)
+  fill!(in.t_last_spike,-Inf)
+  fill!(in.counter,0)
+  return nothing
+end
 
 # Forward signals that arrive in the form of spikes 
 function forward_signal!(t_now::Real,dt::Real,
@@ -114,10 +117,10 @@ end
 
 
 @inline function get_next_input_spiketime(tnow::Real,ps::IFInputCurrentConstant{Float64},::Integer)
-  return tnow + rand(Exponential())/ps.rate
+  return tnow - log(rand())/ps.rate  # rand(Exponential())
 end
 @inline function get_next_input_spiketime(tnow::Real,ps::IFInputCurrentConstant{Vector{Float64}},i::Integer)
-  return tnow + rand(Exponential())/ps.rate[i]
+  return tnow - log(rand())/ps.rate[i]
 end
 @inline function get_next_input_spiketime(tnow::Real,ps::IFInputSpikesFunScalar,::Integer)
   return next_poisson_spiketime_from_function(tnow,ps.f,ps.f_upper)
@@ -128,11 +131,7 @@ end
   return next_poisson_spiketime_from_function(tnow,f,f_upper)
 end
 
-
-
-# TO DO !
-
-function get_next_input_spiketime(tnow::Real,ps::IFInputSpikesTrain,i::Integer)
+function get_next_input_spiketime(::Real,ps::IFInputSpikesTrain,i::Integer)
   # note that t_current_spike is expected to be 
   # sg.trains[i][counter[i]] (before counter update)
   c = ps.counter[i]

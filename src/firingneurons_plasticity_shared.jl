@@ -124,7 +124,7 @@ function reset!(pl::PlasticityTriplets)
   return nothing
 end
 
-function plasticity_update!(t_now::Real,dt::Real,
+function plasticity_update!(::Real,dt::Real,
      pspost::PSSpikingType,conn::Connection,pspre::PSSpikingType,
      plast::PlasticityTriplets)
   # elements of sparse matrix that I need
