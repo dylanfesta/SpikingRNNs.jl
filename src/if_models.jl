@@ -12,7 +12,7 @@ struct SKLeak <: SomaticKernel
   v_leak::Float64
 end
 @inline function (sk::SKLeak)(v::Real)
-  return (v-sk.v_leak)
+  return (-v+sk.v_leak)
 end
 struct SKLeakExp <: SomaticKernel
   v_leak::Float64
@@ -20,7 +20,7 @@ struct SKLeakExp <: SomaticKernel
   τ::Float64
 end
 @inline function (sk::SKLeakExp)(v::Real)
-  return  (v-sk.v_leak) + sk.τ*exp((v-sk.vth)/sk.τ)
+  return  (-v+sk.v_leak) + sk.τ*exp((v-sk.vth)/sk.τ)
 end
 
 
@@ -39,12 +39,14 @@ struct PSIFNeuron{So<:SomaticKernel,F<:IFFiring} <: PSSpiking
   firing_process::F
   n::Int64
   input::Vector{Float64}
+  state_now::Vector{Float64}
 	last_fired::Vector{Float64}
 	isfiring::BitArray{1}
 	isrefractory::BitArray{1}
 end
 function reset!(ps::PSIFNeuron)
   fill!(ps.input,0.0)
+  fill!(ps.state_now,0.0)
   fill!(ps.last_fired,-Inf)
   fill!(ps.isfiring,false)
   fill!(ps.isrefractory,false)
@@ -71,22 +73,24 @@ Generates a population of leaky integrate and fire neurons.
 function PSIFNeuron(n::Integer,τ::R,cap::R,
     v_threshold::R,v_reset::R,v_leak::R,t_refractory::R) where R
   input = fill(0.0,n)
+  state = fill(0.0,n)
   lastfired = fill(-Inf,n)
   isfiring = falses(n)
   isrefractory = falses(n)
   skern = SKLeak(v_leak)
   firproc = IFFFixedThreshold(v_threshold,v_reset,t_refractory)
-  return PSIFNeuron(τ,cap,skern,firproc,n,input,lastfired,isfiring,isrefractory)
+  return PSIFNeuron(τ,cap,skern,firproc,n,input,state,lastfired,isfiring,isrefractory)
 end
 
 
 function local_update!(t_now::Float64,dt::Float64,ps::PSIFNeuron)
 	# computes the update to internal voltage, given the total input
   # dv =  somatic_function(v) dt / τ + I dt / Cap
-  dttau =  dt / ps.neurontype.τ
+  dttau =  dt / ps.τ
+  dtCap = dt / ps.capacitance
   @inbounds for i in eachindex(ps.state_now)
     state_now = ps.state_now[i]
-    state_now += (dttau*ps.somatic_kernel(state_now)+ps.input[i]*dtCap)
+    state_now += (dttau*ps.somatic_kernel(state_now) + dtCap*ps.input[i])
     ps.state_now[i] = state_now
   end
 	# update spikes and refractoriness, and end
@@ -112,17 +116,17 @@ function forward_signal!(::Real,dt::Real,
   # postsynaptic voltage
   add_signal_to_nonrefractory!(pspost.input,conn,pspost.isrefractory,pspost.state_now)
   # finally, all postsynaptic conductances decay in time
-  kernel_decay!(dt,conn.synaptic_kernel)
+  kernel_decay!(conn.synaptic_kernel,dt)
   return nothing
 end
 
 function process_spikes!(t_now::Real,ps::PSIFNeuron{SK,F}) where {SK,F<:IFFFixedThreshold}
   reset_spikes!(ps.isfiring)
   fp=ps.firing_process
-	@inbounds @simd for i in eachindex(state_now)
+	@inbounds @simd for i in eachindex(ps.state_now)
     # remove refractoriness
-    if ps.isrefractory[i] && ((t_now-last_fired[i]) >= fp.t_refractory)
-			isrefractory[i] = false
+    if ps.isrefractory[i] && ((t_now-ps.last_fired[i]) >= fp.t_refractory)
+			ps.isrefractory[i] = false
 		end
     # process spikes
 		if ps.state_now[i] > fp.v_threshold
@@ -145,27 +149,29 @@ function reset!(conn::ConnectionIF)
   reset!.(conn.plasticities)
 end
 
-# TO DO  : nice constructor with default values
-function ConnectionIF(n::Integer,τ::Float64,
-    weights::Union{Matrix{Float64},SparseMatrixCSC{Float64,Int64}};
-    is_excitatory::Bool=true)   
-  return nothing  # ZZZZZZZZZZZZZZZZZZZZZZZZZZzz
-end
-
-#function ConnectionIF_conductance
-#function ConnectionIF_conductance_double
 
 struct SyKCurrentExponential <: SynapticKernel
   τ::Float64
   trace::Trace
   is_excitatory::Bool
 end
+function SyKCurrentExponential(n::Integer,τ::Float64;
+    is_excitatory::Bool=true)
+  tr = Trace(τ,n)  
+  return SyKCurrentExponential(τ,tr,is_excitatory)
+end
 reset!(sk::SyKCurrentExponential) = reset!(sk.trace)
+
 
 struct SyKConductanceExponential <: SynapticKernel
   τ::Float64
   v_reversal::Float64
   trace::Trace
+end
+function SyKConductanceExponential(n::Integer,τ::Float64,
+    v_reversal::Float64)
+  tr = Trace(τ,n)  
+  return SyKConductanceExponential(τ,v_reversal,tr)
 end
 reset!(sk::SyKConductanceExponential) = reset!(sk.trace)
 
@@ -176,19 +182,59 @@ struct SyKConductanceDoubleExponential <: SynapticKernel
   trace_plus::Trace
   trace_minus::Trace
 end
+function SyKConductanceDoubleExponential(n::Integer,
+    τplus::Float64, τminus::Float64,
+    v_reversal::Float64)
+  trplus = Trace(τplus,n)  
+  trminus = Trace(τminus,n)  
+  return SyKConductanceDoubleExponential(τplus,τminus,v_reversal,trplus,trminus)
+end
 reset!(sk::SyKConductanceDoubleExponential) = ( reset!(sk.trace_plus) ; reset!(sk.trace_minus))
+
+
+function ConnectionIF(τ::Float64,
+    weights::Union{Matrix{Float64},SparseMatrixCSC{Float64,Int64}};
+    is_excitatory::Bool=true,plasticity::NTuple=(NoPlasticity(),))
+  if weights isa Matrix 
+    weights = sparse(weights)
+  end
+  npost = size(weights,1)
+  syk = SyKCurrentExponential(npost,τ;is_excitatory=is_excitatory)
+  return ConnectionIF(syk,weights,plasticity) 
+end
+function ConnectionIF_conductance(τ::Float64,
+    v_reversal::Float64,
+    weights::Union{Matrix{Float64},SparseMatrixCSC{Float64,Int64}};plasticity::NTuple=(NoPlasticity(),))
+  if weights isa Matrix 
+    weights = sparse(weights)
+  end
+  npost = size(weights,1)
+  syk = SyKConductanceExponential(npost,τ,v_reversal)
+  return ConnectionIF(syk,weights,plasticity) 
+end
+function ConnectionIF_conductance_double(τplus::Float64,τminus::Float64,
+    v_reversal::Float64,
+    weights::Union{Matrix{Float64},SparseMatrixCSC{Float64,Int64}};plasticity::NTuple=(NoPlasticity(),))
+  if weights isa Matrix 
+    weights = sparse(weights)
+  end
+  npost = size(weights,1)
+  syk = SyKConductanceDoubleExponential(npost,τplus,τminus,v_reversal)
+  return ConnectionIF(syk,weights,plasticity) 
+end
+
 
 # this is used for external input currents, the non-spike-based inputs
 struct SyKNone <: SynapticKernel  end
 reset!(::SyKNone) = nothing
 
-@inline function kernel_decay!(dt::Real,
-    sk::Union{SyKCurrentExponential,SyKConductanceExponential})
-  trace_decay!(dt,sk.trace)  
+@inline function kernel_decay!(sk::Union{SyKCurrentExponential,SyKConductanceExponential},
+      dt::Real)
+  trace_decay!(sk.trace,dt)  
 end
-@inline function kernel_decay!(dt::Real,sk::SyKConductanceDoubleExponential)
-  trace_decay!(dt,sk.trace_plus)  
-  trace_decay!(dt,sk.trace_minus)  
+@inline function kernel_decay!(sk::SyKConductanceDoubleExponential,dt::Real)
+  trace_decay!(sk.trace_plus,dt)  
+  trace_decay!(sk.trace_minus,dt)  
 end
 
 @inline function synaptic_kernel_trace_update!(syk::SyKCurrentExponential,w::Float64,idx::Integer)
@@ -209,16 +255,16 @@ end
 @inline function add_signal_to_nonrefractory!(inputs::Vector{Float64},
       conn::AbstractConnectionIF{SyKCurrentExponential},isrefractory::BitArray{1},::Vector)
   syk = conn.synaptic_kernel
-  if conn.is_excitatory
+  if syk.is_excitatory
     @inbounds @simd for i in eachindex(inputs) 
     if ! isrefractory[i]
-      inputs[i] .+=syk.trace[i]    
+      inputs[i] += syk.trace[i]
       end
     end
   else
     @inbounds @simd for i in eachindex(inputs) 
     if ! isrefractory[i]
-      inputs[i] .-=syk.trace[i]    
+      inputs[i] -= syk.trace[i]
       end
     end
   end
@@ -230,7 +276,7 @@ end
   syk = conn.synaptic_kernel
   @inbounds @simd for i in eachindex(inputs) 
   if ! isrefractory[i]
-    inputs[i] .+= syk.trace[i]*(syk.v_reversal-state_now[i])
+    inputs[i] += syk.trace[i]*(syk.v_reversal-state_now[i])
     end
   end
   return nothing

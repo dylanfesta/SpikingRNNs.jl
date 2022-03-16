@@ -146,11 +146,11 @@ function rand_pop_label()
   return Symbol(randstring(3))
 end
 
-abstract type AbstractPopulation{N,PS} end
+abstract type AbstractPopulation{PS} end
 
 # this is for populations without incoming synapses (so no presynaptic 
 # population and no connections). Useful for input units.
-struct UnconnectedPopulation{N,PS} <: AbstractPopulation{N,PS}
+struct UnconnectedPopulation{N,PS} <: AbstractPopulation{PS}
   label::Symbol
   state::PS
 end
@@ -160,31 +160,39 @@ function UnconnectedPopulation(ps::PS;
   return UnconnectedPopulation{0,PS}(label,ps)
 end
 
+@inline function n_prepops(::UnconnectedPopulation)
+  return 0
+end 
 
-struct Population{N,PS<:PopulationState,
-    TC<:NTuple{N,Connection},
-    TP<:NTuple{N,PopulationState}} <:AbstractPopulation{N,PS} 
+
+# struct Population{N,PS<:PopulationState,
+#     TC<:NTuple{N,Connection},
+#     TP<:NTuple{N,PopulationState}} <:AbstractPopulation{N,PS} 
+#   label::Symbol # I use symbols because it might be a DataFrame column name
+#   state::PS
+#   connections::TC
+#   pre_states::TP
+# end
+
+struct Population{PS<:PopulationState} <: AbstractPopulation{PS}
   label::Symbol # I use symbols because it might be a DataFrame column name
   state::PS
-  connections::TC
-  pre_states::TP
+  connections::TC where {N,TC<:NTuple{N,Connection}}
+  pre_states::TP  where {NN,TP<:NTuple{NN,PopulationState}}
 end
 nneurons(p::Population) = nneurons(p.state)
 
 function Population(state::PopulationState,
     (conn_pre::Tuple{C,PS} where {C<:Connection,PS<:PopulationState})... ; 
-    label::Union{Nothing,String}=nothing)
+    label::Union{Nothing,String,Symbol}=nothing)
   connections = Tuple(getindex.(conn_pre,1))
   pre_states = Tuple(getindex.(conn_pre,2))
   label = isnothing(label) ? rand_pop_label() : Symbol(label)
   return Population(label,state,connections,pre_states) 
 end
 
-@inline function n_prepops(p::Population{N,PS,TC,TP}) where {N,PS,TC,TP}
-  return N
-end 
-@inline function n_prepops(p::AbstractPopulation{N,PS}) where {N,PS}
-  return N
+@inline function n_prepops(p::Population)
+  return length(p.pre_states)
 end 
 
 abstract type AbstractNetwork end
@@ -202,7 +210,7 @@ end
 # updates the state of the population locally, depending on
 # some input gathered in previous steps
 # usually it's simply the vector p.input
-function local_update!(tnow::Real,dt::Real,p::PopulationState)
+function local_update!(::Real,::Real,::PopulationState)
   return nothing  
 end
 function local_update!(tnow::Real,dt::Real,p::AbstractPopulation)

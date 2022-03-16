@@ -2,9 +2,14 @@
 struct ConnectionIFInput{S<:SynapticKernel} <: AbstractConnectionIF{S}
   synaptic_kernel::S
   weights::Vector{Float64}
+  plasticities::PL where {M,PL<:NTuple{M,PlasticityRule}}
 end
 
-ConnectionIFInput(weights::Vector{Float64}) = ConnectionIFInput(SyKNone(),weights)
+function ConnectionIFInput(weights::Vector{Float64},
+    synaptic_kernel::SynapticKernel=SyKNone();
+    plasticities::Tuple=(NoPlasticity(),) )
+  return ConnectionIFInput(synaptic_kernel,weights,plasticities)
+end
 
 # deals with inputs that are just currents
 struct IFInputCurrentConstant{V<:Union{Float64,Vector{Float64}}} <: PopulationState
@@ -18,43 +23,43 @@ struct IFInputCurrentFunVector <: PopulationState
 end
 
 function forward_signal!(::Real,dt::Real,
-        pspost::PSIFNeuron,conn::ConnectionIFInput{SyKNothing},
+        pspost::PSIFNeuron,conn::ConnectionIFInput{SyKNone},
         pspre::IFInputCurrentConstant{Float64})
   @inbounds @simd for i in eachindex(inputs) 
   if ! pspost.isrefractory[i]
-    pspost.input[i] .+= conn.weights[i]*pspre.current
+    pspost.input[i] += conn.weights[i]*pspre.current
     end
   end
   return nothing
 end
 function forward_signal!(::Real,::Real,
-        pspost::PSIFNeuron,conn::ConnectionIFInput{SyKNothing},
+        pspost::PSIFNeuron,conn::ConnectionIFInput{SyKNone},
         pspre::IFInputCurrentConstant{<:Vector})
-  @inbounds @simd for i in eachindex(inputs) 
+  @inbounds @simd for i in eachindex(pspost.input) 
   if ! pspost.isrefractory[i]
-    pspost.input[i] .+= conn.weights[i]*pspre.current[i]
+    pspost.input[i] += conn.weights[i]*pspre.current[i]
     end
   end
   return nothing
 end
 function forward_signal!(t_now::Real,::Real,
-        pspost::PSIFNeuron,conn::ConnectionIFInput{SyKNothing},
+        pspost::PSIFNeuron,conn::ConnectionIFInput{SyKNone},
         pspre::IFInputCurrentFunScalar)
   curr_now::Float64 = pspre.f(t_now)
-  @inbounds @simd for i in eachindex(inputs) 
+  @inbounds @simd for i in eachindex(pspost.input) 
   if ! pspost.isrefractory[i]
-    pspost.input[i] .+= conn.weights[i]*curr_now
+    pspost.input[i] += conn.weights[i]*curr_now
     end
   end
   return nothing
 end
 function forward_signal!(t_now::Real,::Real,
-        pspost::PSIFNeuron,conn::ConnectionIFInput{SyKNothing},
+        pspost::PSIFNeuron,conn::ConnectionIFInput{SyKNone},
         pspre::IFInputCurrentFunVector)
   curr_now::Vector{Float64} = pspre.f(t_now)
-  @inbounds @simd for i in eachindex(inputs) 
+  @inbounds @simd for i in eachindex(pspost.input) 
   if ! pspost.isrefractory[i]
-    pspost.input[i] .+= conn.weights[i]*curr_now[i]
+    pspost.input[i] += conn.weights[i]*curr_now[i]
     end
   end
   return nothing

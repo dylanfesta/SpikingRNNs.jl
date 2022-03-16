@@ -22,6 +22,11 @@ end
 
 # no plasticity, nothing to do
 @inline function plasticity_update!(::Real,::Real,
+     ::PopulationState,::Connection,::PopulationState,::NoPlasticity)
+  return nothing
+end
+
+@inline function plasticity_update!(::Real,::Real,
      ::PSSpikingType,::Connection,::PSSpikingType,::NoPlasticity)
   return nothing
 end
