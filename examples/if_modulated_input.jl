@@ -13,14 +13,13 @@ using LinearAlgebra,Statistics,StatsBase,Distributions
 using Plots,NamedColors ; theme(:default)
 using SparseArrays 
 using SpikingRNNs; const global S = SpikingRNNs
-using BenchmarkTools
 using FileIO
 
 ## # src
 
 # Time
 const dt = 1E-3
-const Ttot = 10.0;
+const Ttot = 5.0;
 
 # ## Create 10  excitatory LIF neurons
 
@@ -31,7 +30,7 @@ const vth = 10.  # action-potential threshold
 const vreset = -5.0 # reset potential
 const vleak = -5.0 # leak potential
 const τrefr = 0.0 # refractoriness
-const τpcd = 0.2 # synaptic kernel decay
+const τpcd = 0.02 # synaptic kernel decay
 
 const ps = S.PSIFNeuron(N,τ,cap,vth,vreset,vleak,τrefr);
 
@@ -70,7 +69,7 @@ const network = S.RecurrentNetwork(dt,pop)
 ## I will record the full spike train for the neurons.
 const rec_spikes = S.RecSpikes(ps,50.0,Ttot)
 # and the internal potential
-const krec = 10
+const krec = 1
 const rec_state = S.RecStateNow(ps,krec,dt,Ttot)
 
 const times = (0:dt:Ttot)
@@ -92,6 +91,19 @@ end
 # this is useful for visualization only
 S.add_fake_spikes!(1.5vth,rec_state,rec_spikes)
 
+## #src
+# ## Plot internal potential for a pair of neurons
+
+_ = let neu1=1,neu2=2,
+  times = rec_state.times,
+  mpot1 = rec_state.state_now[neu1,:]
+  mpot2 = rec_state.state_now[neu2,:]
+  plot(times,[mpot1 mpot2], 
+    xlabel="time (s)",
+    ylabel="membrane potential (mV)",
+    label=["neuron 1" "neuron 2"],
+    leg=:bottomright)
+end
 
 ## #src
 # ## Plot train raster
@@ -101,6 +113,10 @@ theraster = let rdt = 0.01,
   rTend = Ttot
   S.draw_spike_raster(trains,rdt,rTend)
 end
+
+# The raster might not be visible online, but it can be saved 
+# locally as a png image as follows:
+# `save("<save path>",theraster)`
 
 save("/tmp/rast.png",theraster) #src
 
