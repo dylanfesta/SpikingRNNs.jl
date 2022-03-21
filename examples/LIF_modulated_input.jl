@@ -11,17 +11,17 @@ using SparseArrays
 using SpikingRNNs; const global S = SpikingRNNs
 using BenchmarkTools
 
-##
+## # src
 
-dt = 1E-3
-Ttot = 100.0
-# 2  LIF neurons
-myτ = 0.2
-vth = 10.
-v_r = -5.0
-τrefr= 0.0 # refractoriness
-τpcd = 0.2 # post synaptic current decay
-ps_e = S.PSLIF(myτ,vth,v_r,τrefr,τpcd,2)
+# Generate 2  LIF neurons
+const dt = 1E-3
+const Ttot = 100.0
+const myτ = 0.2
+const vth = 10.
+const v_r = -5.0
+const τrefr= 0.01 # refractoriness
+const τpcd = 0.2 # post synaptic current decay
+const ps_e = S.PSLIF(myτ,vth,v_r,τrefr,τpcd,2)
 
 
 ##

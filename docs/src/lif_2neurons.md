@@ -1,66 +1,98 @@
+```@meta
+EditURL = "https://github.com/dylanfesta/SpikingRNNs.jl/blob/master/examples/lif_2neurons.jl"
+```
+
+````@example lif_2neurons
 using LinearAlgebra,Statistics,StatsBase
 using Plots,NamedColors ; theme(:dark)
-using SparseArrays 
+using SparseArrays
 using SpikingRNNs; const global S = SpikingRNNs
 
 function onesparsemat(w::Real)
   return sparse(cat(w;dims=2))
 end
 
-##
+#
 const dt = 1E-3
-# two LIF neurons, E and I
-const τe = 0.2 # time constant for dynamics 
+````
+
+two LIF neurons, E and I
+
+````@example lif_2neurons
+const τe = 0.2 # time constant for dynamics
 const τi = 0.1
 const cap_e = τe # capacitance
-const cap_i = τi 
-const vth = 10.  # action-potential threshold 
+const cap_i = τi
+const vth = 10.  # action-potential threshold
 const vreset = -5.0 # reset potential
 const vleak = -5.0 # leak potential
 const τrefre = 0.2 # refractoriness
-const τrefri = 0.3 
+const τrefri = 0.3
 const τpcd = 0.2 # synaptic kernel decay
 
 const ps_e = S.PSIFNeuron(1,τe,cap_e,vth,vreset,vleak,τrefre)
 const ps_i = S.PSIFNeuron(1,τi,cap_i,vth,vreset,vleak,τrefri)
+````
 
-# define static inputs
+define static inputs
+
+````@example lif_2neurons
 const h_in_e = 10.1 - vleak
 const h_in_i = 0.0
 const in_e = S.IFInputCurrentConstant([h_in_e,])
 const in_i = S.IFInputCurrentConstant([h_in_i,])
+````
 
+connections
 
-# connections
+````@example lif_2neurons
 const conn_in_e = S.ConnectionIFInput([1.,])
 const conn_in_i = S.ConnectionIFInput([1.,])
-# connect E <-> I , both ways, but no autapses 
-# i connections should be negative!
+````
+
+connect E <-> I , both ways, but no autapses
+i connections should be negative!
+
+````@example lif_2neurons
 const w_ie = 30.0
 const w_ei = 40.0
 const conn_ie = S.ConnectionIF(τpcd,onesparsemat(w_ie))
 const conn_ei = S.ConnectionIF(τpcd,onesparsemat(w_ei);is_excitatory=false)
+````
 
-# connected populations
+connected populations
+
+````@example lif_2neurons
 const pop_e = S.Population(ps_e,(conn_ei,ps_i),(conn_in_e,in_e))
 const pop_i = S.Population(ps_i,(conn_ie,ps_e),(conn_in_i,in_i))
+````
 
-# that's it, let's make the network
+that's it, let's make the network
+
+````@example lif_2neurons
 const network = S.RecurrentNetwork(dt,(pop_e,pop_i))
 
-##
+#
 
 const Ttot = 15.
 const times = (0:network.dt:Ttot)
 nt = length(times)
-# initial conditions
+````
+
+initial conditions
+
+````@example lif_2neurons
 ps_e.state_now[1] = vreset
 ps_i.state_now[1] = vreset + 0.95*(vth-vreset)
-# things to save
+````
+
+things to save
+
+````@example lif_2neurons
 myvse = Vector{Float64}(undef,nt) # voltage
 myfiringe = BitVector(undef,nt) # spike raster
 myrefre = similar(myfiringe)  # if it is refractory
-eicurr = similar(myvse)  # e-i current 
+eicurr = similar(myvse)  # e-i current
 
 myvsi = Vector{Float64}(undef,nt)
 myfiringi = BitVector(undef,nt)
@@ -78,31 +110,33 @@ for (k,t) in enumerate(times)
   eicurr[k]=conn_ei.synaptic_kernel.trace[1]
   iecurr[k]=conn_ie.synaptic_kernel.trace[1]
 end
+````
 
-# add spikes for plotting purposes, the eight is set arbitrarily to 
-# three times the firing threshold
+add spikes for plotting purposes, the eight is set arbitrarily to
+three times the firing threshold
+
+````@example lif_2neurons
 myvse[myfiringe] .= 3 * vth
 myvsi[myfiringi] .= 3 * vth
 
-## #src
 theplot = let  plt=plot(times,myvse;leg=false,linewidth=1,
   ylabel="E (mV)",
   color=colorant"Midnight Blue") # the green line indicates when the neuron is refractory
-  plot!(plt,times, 20.0*myrefre; opacity=0.6, color=:green,linewidth=1)  
+  plot!(plt,times, 20.0*myrefre; opacity=0.6, color=:green,linewidth=1)
   plti=plot(times,myvsi;leg=false,linewidth=1,
      ylabel="I (mV)",
     color=colorant"Brick Red")
   plot!(plti,times, 20.0*myrefri; opacity=0.6, color=:green)
-  pltcurr=plot(times, [ iecurr eicurr]; leg=false, 
+  pltcurr=plot(times, [ iecurr eicurr]; leg=false,
     linewidth=1, ylabel="E/I connection curr.",
     color=[colorant"Teal" colorant"Orange"])
   plot(plt,plti,pltcurr; layout=(3,1),
     xlabel=["" "" "time (s)"])
 end;
 plot(theplot)
+````
 
-savefig(theplot,"/tmp/tmp.pdf") #src
+---
 
-## Publish ! #src
-using Literate #src
-Literate.markdown(@__FILE__,"docs/src";documenter=true,repo_root_url="https://github.com/dylanfesta/SpikingRNNs.jl/blob/master") #src
+*This page was generated using [Literate.jl](https://github.com/fredrikekre/Literate.jl).*
+
