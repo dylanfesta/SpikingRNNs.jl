@@ -13,26 +13,34 @@ using BenchmarkTools
 
 ## # src
 
-# Generate 2  LIF neurons
+# Generate 10  excitatory LIF neurons
+## #src
+const N = 10
 const dt = 1E-3
-const Ttot = 100.0
-const myτ = 0.2
-const vth = 10.
-const v_r = -5.0
-const τrefr= 0.01 # refractoriness
-const τpcd = 0.2 # post synaptic current decay
-const ps_e = S.PSLIF(myτ,vth,v_r,τrefr,τpcd,2)
+# two LIF neurons, E and I
+const τ = 0.2 # time constant for dynamics 
+const cap = τ # capacitance
+const vth = 10.  # action-potential threshold 
+const vreset = -5.0 # reset potential
+const vleak = -5.0 # leak potential
+const τrefr = 0.2 # refractoriness
+const τpcd = 0.2 # synaptic kernel decay
 
+const ps = S.PSIFNeuron(N,τe,cap_e,vth,vreset,vleak,τrefr)
+
+
+
+# Modulation signal
+const ω = 20.0
+const text_start = 0.23 # when the signal is on
+const rext_min,rext_max = 40,80 
+
+function ratefun(t::Float64)
+  (t<=text_start) && (return 0.0)
+  return rext_min + (0.5+0.5sin(2π*t/ω))*(rext_max-rext_min)
+end
 
 ##
-# 10 modulated input neurons
-function ratefun(t::Float64)
-  ω = 20.0
-  return 5*(1+sin(2π*t/ω))*0.5
-end
-τin = 0.233
-ps_in = S.PSInputPoissonFt(ratefun,τin,10)
-
 
 # connection from input to E
 # 5 inputs go to one neuron, 5 to the other

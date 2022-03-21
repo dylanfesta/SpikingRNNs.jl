@@ -1,13 +1,31 @@
+#=
+
+# Two LIF neurons
+
+In this example I show two LIF neuron, one excitatory and one inhibitory,
+connected together. I plot the voltage traces, the internal currents, the 
+refractoriness.
+
+I access to the internal variables directly, but in the next examples I will be using
+recorder objects.
+
+=#
+
+# # Initialization
+
 using LinearAlgebra,Statistics,StatsBase
-using Plots,NamedColors ; theme(:dark)
+using Plots,NamedColors ; theme(:default)
 using SparseArrays 
 using SpikingRNNs; const global S = SpikingRNNs
 
 function onesparsemat(w::Real)
   return sparse(cat(w;dims=2))
-end
+end;
 
-##
+## #src
+
+# # Parameters
+
 const dt = 1E-3
 # two LIF neurons, E and I
 const τe = 0.2 # time constant for dynamics 
@@ -22,38 +40,39 @@ const τrefri = 0.3
 const τpcd = 0.2 # synaptic kernel decay
 
 const ps_e = S.PSIFNeuron(1,τe,cap_e,vth,vreset,vleak,τrefre)
-const ps_i = S.PSIFNeuron(1,τi,cap_i,vth,vreset,vleak,τrefri)
+const ps_i = S.PSIFNeuron(1,τi,cap_i,vth,vreset,vleak,τrefri);
 
-# define static inputs
+# ## Define static inputs
 const h_in_e = 10.1 - vleak
 const h_in_i = 0.0
 const in_e = S.IFInputCurrentConstant([h_in_e,])
 const in_i = S.IFInputCurrentConstant([h_in_i,])
 
 
-# connections
+# ## Define connections
+
+# connect E <-> I , both ways, but no autapses 
 const conn_in_e = S.ConnectionIFInput([1.,])
 const conn_in_i = S.ConnectionIFInput([1.,])
-# connect E <-> I , both ways, but no autapses 
-# i connections should be negative!
 const w_ie = 30.0
 const w_ei = 40.0
 const conn_ie = S.ConnectionIF(τpcd,onesparsemat(w_ie))
-const conn_ei = S.ConnectionIF(τpcd,onesparsemat(w_ei);is_excitatory=false)
+const conn_ei = S.ConnectionIF(τpcd,onesparsemat(w_ei);is_excitatory=false);
 
 # connected populations
 const pop_e = S.Population(ps_e,(conn_ei,ps_i),(conn_in_e,in_e))
-const pop_i = S.Population(ps_i,(conn_ie,ps_e),(conn_in_i,in_i))
+const pop_i = S.Population(ps_i,(conn_ie,ps_e),(conn_in_i,in_i));
 
 # that's it, let's make the network
-const network = S.RecurrentNetwork(dt,(pop_e,pop_i))
+const network = S.RecurrentNetwork(dt,(pop_e,pop_i));
 
-##
+## # src
+# # Network simulation
 
 const Ttot = 15.
 const times = (0:network.dt:Ttot)
 nt = length(times)
-# initial conditions
+# set initial conditions
 ps_e.state_now[1] = vreset
 ps_i.state_now[1] = vreset + 0.95*(vth-vreset)
 # things to save
@@ -77,7 +96,7 @@ for (k,t) in enumerate(times)
   myrefri[k]=ps_i.isrefractory[1]
   eicurr[k]=conn_ei.synaptic_kernel.trace[1]
   iecurr[k]=conn_ie.synaptic_kernel.trace[1]
-end
+end;
 
 # add spikes for plotting purposes, the eight is set arbitrarily to 
 # three times the firing threshold
