@@ -42,10 +42,10 @@ end
   + `Tmax::Float64` : upper threshold for spike proposal, maximum interval that can be produced    
   + `nowarning::Bool` : does not throw a warning when `Tmax`` is reached
 """
-function next_poisson_spiketime_from_function(t_start::Float64,fun_rate::Float64,fun_rate_upper::Float64; 
+function next_poisson_spiketime_from_function(t_start::Float64,fun_rate::Function,fun_rate_upper::Function; 
     Tmax::Float64=50.0,nowarning::Bool=false)
   t = t_start 
-  while (t-t_start)<Tmax 
+  while (t-t_start) < Tmax 
     (rup::Float64) = fun_rate_upper(t)
     Δt = -log(rand())./rup # rand(Exponential())./rup
     t = t+Δt

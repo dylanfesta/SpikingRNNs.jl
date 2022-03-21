@@ -12,6 +12,10 @@ CurrentModule = SpikingRNNs
 ## Examples
 
 + [Leaky-integrate and fire, single neurons](./lif_2neurons.md) -- Voltage traces, refractoriness, etc.
++ [Leaky-integrate and fire, sinusoidal input](./if_modulated_input.md) -- Voltage traces, refractoriness, etc.
+
+
+## Index and documented functions
 
 ```@index
 ```
