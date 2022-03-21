@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Sinuisodal input for two LIF neurons · SpikingRNNs.jl</title><script data-outdated-warner src="../assets/warner.js"></script><link rel="canonical" href="https://dylanfesta.github.io/SpikingRNNs.jl/if_modulated_input/"/><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.039/juliamono-regular.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.13.11/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../">SpikingRNNs.jl</a></span></div><form class="docs-search" action="../search/"><input class="docs-search-query" id="documenter-search-query" name="q" type="text" placeholder="Search docs"/></form><ul class="docs-menu"><li><a class="tocitem" href="../">Home</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>Sinuisodal input for two LIF neurons</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Sinuisodal input for two LIF neurons</a></li></ul></nav><div class="docs-right"><a class="docs-edit-link" href="https://github.com/dylanfesta/SpikingRNNs.jl/blob/master/examples/if_modulated_input.jl" title="Edit on GitHub"><span class="docs-icon fab"></span><span class="docs-label is-hidden-touch">Edit on GitHub</span></a><a class="docs-settings-button fas fa-cog" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-sidebar-button fa fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a></div></header><article class="content" id="documenter-page"><h1 id="Sinuisodal-input-for-two-LIF-neurons"><a class="docs-heading-anchor" href="#Sinuisodal-input-for-two-LIF-neurons">Sinuisodal input for two LIF neurons</a><a id="Sinuisodal-input-for-two-LIF-neurons-1"></a><a class="docs-heading-anchor-permalink" href="#Sinuisodal-input-for-two-LIF-neurons" title="Permalink"></a></h1><p>Several LIF E neurons receive a sinusoidal spiking input.</p><p>I plot the input and the spike train.</p><pre><code class="language- hljs">push!(LOAD_PATH, abspath(@__DIR__,&quot;..&quot;))
+
+using Test
+using LinearAlgebra,Statistics,StatsBase,Distributions
+using Plots,NamedColors ; theme(:default)
+using SparseArrays
+using SpikingRNNs; const global S = SpikingRNNs
+using BenchmarkTools
+using FileIO
+
+# # src</code></pre><p>Time</p><pre><code class="language-julia hljs">const dt = 1E-3
+const Ttot = 10.0;</code></pre><h2 id="Create-10-excitatory-LIF-neurons"><a class="docs-heading-anchor" href="#Create-10-excitatory-LIF-neurons">Create 10  excitatory LIF neurons</a><a id="Create-10-excitatory-LIF-neurons-1"></a><a class="docs-heading-anchor-permalink" href="#Create-10-excitatory-LIF-neurons" title="Permalink"></a></h2><pre><code class="language- hljs">const N = 10
+const τ = 0.2 # time constant for dynamics
+const cap = τ # capacitance
+const vth = 10.  # action-potential threshold
+const vreset = -5.0 # reset potential
+const vleak = -5.0 # leak potential
+const τrefr = 0.0 # refractoriness
+const τpcd = 0.2 # synaptic kernel decay
+
+const ps = S.PSIFNeuron(N,τ,cap,vth,vreset,vleak,τrefr);
+nothing #hide</code></pre><h2 id="Modulation-signal"><a class="docs-heading-anchor" href="#Modulation-signal">Modulation signal</a><a id="Modulation-signal-1"></a><a class="docs-heading-anchor-permalink" href="#Modulation-signal" title="Permalink"></a></h2><pre><code class="language-julia hljs">const ω = 1.0
+const text_start = 0.23 # when the signal is on
+const rext_min,rext_max = 10,200
+const rext_off = 6.0
+
+function ratefun(t::Float64)
+  (t&lt;=text_start) &amp;&amp; (return rext_off)
+  return rext_min + (0.5+0.5sin(2π*t/ω))*(rext_max-rext_min)
+end
+function ratefun_upper(::Float64)
+  return rext_max # slightly suboptimal when it comes to generation of spikes
+end</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">ratefun_upper (generic function with 1 method)</code></pre><h2 id="Input-object"><a class="docs-heading-anchor" href="#Input-object">Input object</a><a id="Input-object-1"></a><a class="docs-heading-anchor-permalink" href="#Input-object" title="Permalink"></a></h2><pre><code class="language- hljs">const ps_input = S.IFInputSpikesFunScalar(N,ratefun,ratefun_upper)</code></pre><p>connection from input to E let&#39;s define a conductance based kernel this time!</p><pre><code class="language- hljs">const τker = 0.3
+const vrev_in = 15.0 # must be higher than firing threshold!
+const in_ker = S.SyKConductanceExponential(N,τker,vrev_in)
+const win = 0.1
+const in_weights = fill(win,N)
+const conn_e_in = S.ConnectionIFInput(in_weights,in_ker)</code></pre><p>Now I can define the population and the network. The neurons have no mutual connections, they are independent</p><pre><code class="language- hljs">const pop = S.Population(ps,(conn_e_in,ps_input))
+const network = S.RecurrentNetwork(dt,pop)
+
+
+# I will record the full spike train for the neurons.
+const rec_spikes = S.RecSpikes(ps,50.0,Ttot)</code></pre><p>and the internal potential</p><pre><code class="language- hljs">const krec = 10
+const rec_state = S.RecStateNow(ps,krec,dt,Ttot)
+
+const times = (0:dt:Ttot)
+const nt = length(times);
+nothing #hide</code></pre><h2 id="Run-the-network"><a class="docs-heading-anchor" href="#Run-the-network">Run the network</a><a id="Run-the-network-1"></a><a class="docs-heading-anchor-permalink" href="#Run-the-network" title="Permalink"></a></h2><pre><code class="language- hljs">S.reset!.([rec_state,rec_spikes])
+S.reset!(ps);
+fill!(ps.state_now,0.0)
+
+for (k,t) in enumerate(times)
+  rec_state(t,k,network)
+  rec_spikes(t,k,network)
+  S.dynamics_step!(t,network)
+end</code></pre><p>this is useful for visualization only</p><pre><code class="language- hljs">S.add_fake_spikes!(1.5vth,rec_state,rec_spikes)</code></pre><h2 id="Plot-train-raster"><a class="docs-heading-anchor" href="#Plot-train-raster">Plot train raster</a><a id="Plot-train-raster-1"></a><a class="docs-heading-anchor-permalink" href="#Plot-train-raster" title="Permalink"></a></h2><pre><code class="language- hljs">const trains = S.get_spiketrains(rec_spikes)
+
+theraster = let rdt = 0.01,
+  rTend = Ttot
+  S.draw_spike_raster(trains,rdt,rTend)
+end</code></pre><hr/><p><em>This page was generated using <a href="https://github.com/fredrikekre/Literate.jl">Literate.jl</a>.</em></p></article><nav class="docs-footer"><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 0.27.15 on <span class="colophon-date" title="Monday 21 March 2022 18:13">Monday 21 March 2022</span>. Using Julia version 1.7.2.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
