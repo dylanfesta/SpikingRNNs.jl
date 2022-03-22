@@ -18,7 +18,7 @@ end
 
 # ## Time parameters
 const dt = 1E-4
-const Ttot = 30.
+const Ttot = 30.;
 
 # ## LIF neuron with constant input
 
@@ -34,9 +34,9 @@ const ps = S.PSIFNeuron(1,myτ,cap,vth,v_r,vleak,τrefr);
 ## one static input above threshold 
 const hw_in=20.0
 const in_const = S.IFInputCurrentConstant(hw_in)
-const conn_in = S.ConnectionIFInput([1.]);
+const conn_in = S.ConnectionIFInput([1.])
 
-const pop = S.Population(ps,(conn_in,in_const))
+const pop = S.Population(ps,(conn_in,in_const));
 
 ## #src
 # that's it, let's make the network
