@@ -107,9 +107,7 @@ function f_lif_num(h_in;dt=1E-4,Ttot=10.0)
   mypop = S.Population(ps,(conn_in,in_const))
   myntw = S.RecurrentNetwork(dt,mypop)
   rec = S.RecCountSpikes(ps,dt)
-  ## Run!
   times = (0:myntw.dt:Ttot)
-  # initial conditions
   ps.state_now[1] = v_r
   S.reset!(rec)
   for (k,t) in enumerate(times)
