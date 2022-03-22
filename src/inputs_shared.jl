@@ -138,7 +138,7 @@ end
 function reset!(::PSPoisson)
   return nothing
 end
-function local_update!(t_now::Float64,dt::Float64,ps::PSPoisson)
+function local_update!(::Float64,dt::Float64,ps::PSPoisson)
   reset_spikes!(ps)
   Random.rand!(ps.isfiring_alloc)
   _rate = ps.neurontype.rate[]
