@@ -1,5 +1,5 @@
 ```@meta
-EditURL = "https://github.com/dylanfesta/SpikingRNNs.jl/blob/master/examples/lif_2neurons.jl"
+EditURL = "https://github.com/dylanfesta/SpikingRNNs.jl/blob/master/examples/if_2neurons.jl"
 ```
 
 # Two LIF neurons
@@ -13,7 +13,7 @@ recorder objects.
 
 # Initialization
 
-````@example lif_2neurons
+````@example if_2neurons
 using LinearAlgebra,Statistics,StatsBase
 using Plots,NamedColors ; theme(:default)
 using SparseArrays
@@ -27,13 +27,13 @@ nothing #hide
 
 # Parameters
 
-````@example lif_2neurons
+````@example if_2neurons
 const dt = 1E-3
 ````
 
 two LIF neurons, E and I
 
-````@example lif_2neurons
+````@example if_2neurons
 const τe = 0.2 # time constant for dynamics
 const τi = 0.1
 const cap_e = τe # capacitance
@@ -52,7 +52,7 @@ nothing #hide
 
 ## Define static inputs
 
-````@example lif_2neurons
+````@example if_2neurons
 const h_in_e = 10.1 - vleak
 const h_in_i = 0.0
 const in_e = S.IFInputCurrentConstant([h_in_e,])
@@ -63,7 +63,7 @@ const in_i = S.IFInputCurrentConstant([h_in_i,])
 
 connect E <-> I , both ways, but no autapses
 
-````@example lif_2neurons
+````@example if_2neurons
 const conn_in_e = S.ConnectionIFInput([1.,])
 const conn_in_i = S.ConnectionIFInput([1.,])
 const w_ie = 30.0
@@ -75,7 +75,7 @@ nothing #hide
 
 connected populations
 
-````@example lif_2neurons
+````@example if_2neurons
 const pop_e = S.Population(ps_e,(conn_ei,ps_i),(conn_in_e,in_e))
 const pop_i = S.Population(ps_i,(conn_ie,ps_e),(conn_in_i,in_i));
 nothing #hide
@@ -83,7 +83,7 @@ nothing #hide
 
 that's it, let's make the network
 
-````@example lif_2neurons
+````@example if_2neurons
 const network = S.RecurrentNetwork(dt,(pop_e,pop_i));
 
 # # src
@@ -91,7 +91,7 @@ const network = S.RecurrentNetwork(dt,(pop_e,pop_i));
 
 # Network simulation
 
-````@example lif_2neurons
+````@example if_2neurons
 const Ttot = 15.
 const times = (0:network.dt:Ttot)
 nt = length(times)
@@ -99,14 +99,14 @@ nt = length(times)
 
 set initial conditions
 
-````@example lif_2neurons
+````@example if_2neurons
 ps_e.state_now[1] = vreset
 ps_i.state_now[1] = vreset + 0.95*(vth-vreset)
 ````
 
 things to save
 
-````@example lif_2neurons
+````@example if_2neurons
 myvse = Vector{Float64}(undef,nt) # voltage
 myfiringe = BitVector(undef,nt) # spike raster
 myrefre = similar(myfiringe)  # if it is refractory
@@ -134,7 +134,7 @@ nothing #hide
 add spikes for plotting purposes, the eight is set arbitrarily to
 three times the firing threshold
 
-````@example lif_2neurons
+````@example if_2neurons
 myvse[myfiringe] .= 3 * vth
 myvsi[myfiringi] .= 3 * vth
 

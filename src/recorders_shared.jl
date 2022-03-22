@@ -195,6 +195,22 @@ function get_spiketimes_dictionary(rec::Union{RecSpikes,RecSpikesContent})
   return ret
 end
 
+# does not necessarily preserve neuron information, but it is useful for rasters
+function get_spiketrains(rec::Union{RecSpikes,RecSpikesContent};resort=nothing)
+  spk_t,spk_neu = get_spiketimes_spikeneurons(rec)
+  neus = sort!(unique(spk_neu))
+  N = maximum(neus)
+  ret = map(1:N) do neu
+    if (neu in neus)
+      idxs = spk_neu .== neu
+      return spk_t[idxs]
+    else
+      return Float64[]
+    end
+  end
+  return ret
+end
+
 function get_mean_rates(rec::Union{RecSpikes,RecSpikesContent};
     (Tend::Float64)=0.0)
   Tend = min(Tend,rec.Tend)  
@@ -344,6 +360,96 @@ function raster_png(dt::Float64,rspk::Union{RecSpikes,RecSpikesContent};
   end
   return ret
 end
+
+"""
+    bin_spikes(Y::Vector{R},dt::R,Tend::R;Tstart::R=0.0) where R
+
+# Arguments
+  + `Y::Vector{<:Real}` : vector of spike times
+  + `dt::Real` : time bin size
+  + `Tend::Real` : end time for the raster
+# Optional argument
+  + `Tstart::Real=0.0` : start time for the raster
+
+# Returns   
+  + `binned_spikes::Vector{<:Integer}` : `binned_spikes[k]` is the number of spikes that occur 
+      in the timebin `k`  (i.e. between `Tstart + (k-1)*dt` and `Tstart + k*dt`)
+"""
+function bin_spikes(Y::Vector{R},dt::R,Tend::R;Tstart::R=0.0) where R
+  times = range(Tstart,Tend;step=dt)  
+  ret = fill(0,length(times)-1)
+  for y in Y
+    if Tstart < y <= last(times)
+      k = searchsortedfirst(times,y)-1
+      ret[k] += 1
+    end
+  end
+  return ret
+end
+
+
+"""
+  draw_spike_raster(trains::Vector{Vector{Float64}},
+      dt::Real,Tend::Real;
+      Tstart::Real=0.0,
+      spike_size::Integer = 5,
+      spike_separator::Integer = 1,
+      background_color::Color=RGB(1.,1.,1.),
+      spike_colors::Union{C,Vector{C}}=RGB(0.,0.0,0.0),
+      max_size::Real=1E4) where C<:Color
+
+Draws a matrix that contains the raster plot of the spike train.
+
+# Arguments
+  + `Trains` :  Vector of spike trains. The order of the vector corresponds to 
+    the order of the plot. First element is at the top, second is second row, etc.
+  + `dt` : time interval representing one horizontal pixel  
+  + `Tend` : final time to be considered
+
+# Optional arguments
+  + `Tstart::Real` : starting time
+  + `spike_size::Integer` : heigh of spike (in pixels)
+  + `spike_separator::Integer` : space between spikes, and vertical padding
+  + `background_color::Color` : self-explanatory
+  + `spike_colors::Union{Color,Vector{Color}}` : if a single color, color of all spikes, if vector of colors, 
+     color for each neuron (length should be same as number of neurons)
+  + `max_size::Integer` : throws an error if image is larger than this number (in pixels)
+
+# Returns
+  + `raster_matrix::Matrix{Color}` you can save it as a png file
+"""
+function draw_spike_raster(trains::Vector{Vector{Float64}},
+  dt::Real,Tend::Real;
+    Tstart::Real=0.0,
+    spike_size::Integer = 5,
+    spike_separator::Integer = 1,
+    background_color::Color=RGB(1.,1.,1.),
+    spike_colors::Union{C,Vector{C}}=RGB(0.,0.0,0.0),
+    max_size::Real=1E4) where C<:Color
+  nneus = length(trains)
+  if typeof(spike_colors) <: Color
+    spike_colors = repeat([spike_colors,];outer=nneus)
+  else
+    @assert length(spike_colors) == nneus "error in setting colors"
+  end
+  binned_binary  = map(trains) do train
+    .! iszero.(bin_spikes(train,dt,Tend;Tstart=Tstart))
+  end
+  ntimes = length(binned_binary[1])
+  ret = fill(background_color,
+    (nneus*spike_size + # spike sizes
+      spike_separator*nneus + # spike separators (incl. top/bottom padding) 
+      spike_separator),ntimes)
+  @assert all(size(ret) .< max_size ) "The image is too big! Please change time limits"  
+  for (neu,binv,col) in zip(1:nneus,binned_binary,spike_colors)
+    spk_idx = findall(binv)
+    _idx_pre = (neu-1)*(spike_size+spike_separator)+spike_separator
+    y_color = _idx_pre+1:_idx_pre+spike_size
+    ret[y_color,spk_idx] .= col
+  end
+  return ret
+end
+
 
 # record weights
 # might be useful when testing plasticity at small scale,

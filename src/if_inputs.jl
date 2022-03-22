@@ -21,11 +21,15 @@ end
 struct IFInputCurrentFunVector <: PopulationState
   f::Function # f(::Float64) -> Array{Float64}
 end
+struct IFInputCurrentNormal <: PopulationState
+  μ::Float64
+  σ::Float64
+end
 
 function forward_signal!(::Real,dt::Real,
         pspost::PSIFNeuron,conn::ConnectionIFInput{SyKNone},
         pspre::IFInputCurrentConstant{Float64})
-  @inbounds @simd for i in eachindex(inputs) 
+  @inbounds @simd for i in eachindex(pspost.input) 
   if ! pspost.isrefractory[i]
     pspost.input[i] += conn.weights[i]*pspre.current
     end
@@ -48,7 +52,7 @@ function forward_signal!(t_now::Real,::Real,
   curr_now::Float64 = pspre.f(t_now)
   @inbounds @simd for i in eachindex(pspost.input) 
   if ! pspost.isrefractory[i]
-    pspost.input[i] += conn.weights[i]*curr_now
+      pspost.input[i] += conn.weights[i]*curr_now
     end
   end
   return nothing
@@ -58,8 +62,20 @@ function forward_signal!(t_now::Real,::Real,
         pspre::IFInputCurrentFunVector)
   curr_now::Vector{Float64} = pspre.f(t_now)
   @inbounds @simd for i in eachindex(pspost.input) 
-  if ! pspost.isrefractory[i]
-    pspost.input[i] += conn.weights[i]*curr_now[i]
+    if ! pspost.isrefractory[i]
+      pspost.input[i] += conn.weights[i]*curr_now[i]
+    end
+  end
+  return nothing
+end
+function forward_signal!(::Real,dt::Real,
+        pspost::PSIFNeuron,conn::ConnectionIFInput{SyKNone},
+        pspre::IFInputCurrentNormal)
+  # regularize so that std is σ for isolated neuron
+  σstar = sqrt(2*pspost.τ/dt)*pspre.σ
+  @inbounds @simd for i in eachindex(pspost.input) 
+    if ! pspost.isrefractory[i]
+      pspost.input[i] += conn.weights[i]*(pspre.μ+σstar*randn())
     end
   end
   return nothing
@@ -71,29 +87,47 @@ abstract type AbstractIFInputSpikes <: PopulationState end
 struct IFInputSpikesConstant{V<:Union{Float64,Vector{Float64}}} <: AbstractIFInputSpikes
   rate::V
   t_last_spike::Vector{Float64}
+  function IFInputSpikesConstat(n::Integer,rat::Union{Float64,Vector{Float64}})
+    tlast = fill(0.0,n)
+    new{typeof(rat)}(rat,tlast)
+  end
 end
 struct IFInputSpikesFunScalar <: AbstractIFInputSpikes
   f::Function # f(::Float64) -> Float64 
   f_upper::Function
   t_last_spike::Vector{Float64}
+  function IFInputSpikesFunScalar(n::Integer,fun::Function,funupper::Function)
+    tlast = fill(0.0,n)
+    new(fun,funupper,tlast)
+  end
 end
 struct IFInputSpikesFunVector <: AbstractIFInputSpikes
   f::Function # f(::Float64,idx::Integer) -> Float64
   f_upper::Function
   t_last_spike::Vector{Float64}
+  function IFInputSpikesFunVector(n::Integer,fun::Function,funupper::Function)
+    tlast = fill(0.0,n)
+    new(fun,funupper,tlast)
+  end
 end
 struct IFInputSpikesTrain <: AbstractIFInputSpikes
   train::Vector{Vector{Float64}}
   counter::Vector{Int64}
   t_last_spike::Vector{Float64}
+  function IFInputSpikesTrain(train::Vector{Vector{Float64}})
+    n = length(train)
+    counter = fill(0,n)
+    tlast = fill(0.0,n)
+    new(train,counter,tlast)
+  end
 end
 
 function reset!(in::AbstractIFInputSpikes)
-  fill!(in.t_last_spike,-Inf)
+  fill!(in.t_last_spike,0.0)
   return nothing
 end
 function reset!(in::IFInputSpikesTrain)
-  fill!(in.t_last_spike,-Inf)
+  fill!(in.t_last_spike,0.0)
   fill!(in.counter,0)
   return nothing
 end
@@ -116,7 +150,7 @@ function forward_signal!(t_now::Real,dt::Real,
     end
   end
   add_signal_to_nonrefractory!(pspost.input,conn,pspost.isrefractory,pspost.state_now)
-  kernel_decay!(dt,conn.synaptic_kernel)
+  kernel_decay!(conn.synaptic_kernel,dt)
   return nothing
 end
 
