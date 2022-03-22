@@ -1,5 +1,10 @@
+#=
 # Stationary voltage density (and stationary rate) for a single LIF neuron
-# without refractoriness!
+
+... without refractoriness
+
+## Initialization
+=#
 
 using LinearAlgebra,Statistics,StatsBase
 using Plots,NamedColors ; theme(:default)
@@ -11,13 +16,12 @@ function onesparsemat(w::Real)
   return sparse(cat(w;dims=2))
 end
 
-## Time parameters
+# ## Time parameters
 const dt = 1E-4
 const Ttot = 30.
 
-## start with LIF model
+# ## LIF neuron with constant input
 
-# LIF neuron parameters
 const myτ = 0.5
 const cap = myτ
 const vth = 10.
@@ -34,15 +38,15 @@ const conn_in = S.ConnectionIFInput([1.]);
 
 const pop = S.Population(ps,(conn_in,in_const))
 
+## #src
+# that's it, let's make the network
+const ntw = S.RecurrentNetwork(dt,pop);
 
-## that's it, let's make the network
-const ntw = S.RecurrentNetwork(dt,pop)
-
-## Record spike number and internal potential
+# Record spike number and internal potential
 myrec1 = S.RecStateNow(ps,10,dt,Ttot)
 myrec2 = S.RecCountSpikes(ps,dt)
 
-## Run the simulation
+# Run the simulation
 times = (0:ntw.dt:Ttot)
 nt = length(times)
 # initial conditions
@@ -56,19 +60,22 @@ for (k,t) in enumerate(times)
   myrec2(t,k,ntw)
 end
 r0 = S.get_mean_rates(myrec2,dt,Ttot)[1]
-## show internal membrane potential
-_ = let tshow = (0.,5.)
+## #src
+# plot internal membrane potential
+theplot = let tshow = (0.,5.)
   ts = myrec1.times
   y = myrec1.state_now[1,:]
   idx_keep = findall(t->tshow[1]<= t <= tshow[2],ts)
   plot(ts[idx_keep],y[idx_keep];leg=false,linewidth=2)
 end
+plot(theplot)
+## #src
+#=
+now, use Fokker-Planck theory and Richardson method
+it is hardcoded for now... maybe later I will convert it to 
+a function
+=#
 
-##
-
-# now, use Fokker-Planck theory and Richardson method
-# it is hardcoded for now... maybe later I will convert it to 
-# a function
 const dv = 1E-3
 const v_lb = v_r - 0.1
 const ndv = round(Int64,(vth - v_lb)/dv)
@@ -91,16 +98,17 @@ end
 
 r0 = inv(dv*sum(pps))
 
-##
-_ = let plt = plot(;xlabel="membrane potential",ylabel="prob. density",
+## #src
+theplot = let plt = plot(;xlabel="membrane potential",ylabel="prob. density",
     leg=:topleft)
   histogram!(plt,myrec1.state_now[:];nbins=100,normalize=true,
     label="simulation",color=colorant"orange")
   plot!(plt,Vks,r0.*pps;label="Fokker-Plank",
    color=colorant"blue",linewidth=3)
 end
-
-## Let's do an f-I curve with this
+plot(theplot)
+## #src
+# Let's generate an f-I curve (frequency as a function of input)
 
 function f_lif_num(h_in;dt=1E-4,Ttot=10.0)
   in_const = S.IFInputCurrentConstant(h_in)
@@ -138,8 +146,8 @@ function f_lif_semianalitic(h_in;dv=1E-3)
   return inv(dv*sum(ps))
 end
 
-##
-_ = let Ttot = 50.0
+## #src
+theplot = let Ttot = 50.0
   nsim = 40
   nfp = 200
   inputs_sim = range(vth+0.01,80.0;length=nsim)
@@ -152,6 +160,7 @@ _ = let Ttot = 50.0
   plot!(plt,inputs_fp,y2; label="Fokker-Planck",linewidth=2,
       color=colorant"blue" ) 
 end
+plot(theplot)
 ## #src
 #=
 
@@ -191,8 +200,8 @@ end
 r0 = S.get_mean_rates(myrec4,dt,Ttot)[1]
 @info r0
 @info mean_and_std(myrec3.state_now[:])
-##
-_ = let tshow = (3.,20.)
+## #src
+theplot = let tshow = (3.,20.)
   tshow = tshow .+ rec1_twup
   ts = myrec3.times
   y = myrec3.state_now[1,:]
@@ -200,7 +209,7 @@ _ = let tshow = (3.,20.)
   plot(ts[idx_keep],y[idx_keep];leg=false,linewidth=1,xlabel="time (s)",
     ylabel="membrane potential (mV)",color=:black)
 end
-
+plot(theplot)
 ## #src
 # now, use Fokker-Planck theory and Richardson method
 # it is hardcoded for now... maybe later I will convert it to 
@@ -231,7 +240,7 @@ end
 
 r0 = inv(dv*sum(pps))
 
-_ = let plt = plot(;xlabel="membrane potential",ylabel="prob. density",
+theplot = let plt = plot(;xlabel="membrane potential",ylabel="prob. density",
     leg=:topleft)
   histogram!(plt,myrec3.state_now[:];
     nbins=100,normalize=true,label="simulation",
@@ -239,7 +248,7 @@ _ = let plt = plot(;xlabel="membrane potential",ylabel="prob. density",
   plot!(plt,Vks,r0.*pps;color=colorant"blue",
     linewidth=2,label="Fokker-Plank")
 end
-
+plot(theplot)
 
 ## Publish ! #src
 using Literate #src

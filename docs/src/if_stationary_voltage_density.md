@@ -2,8 +2,11 @@
 EditURL = "https://github.com/dylanfesta/SpikingRNNs.jl/blob/master/examples/if_stationary_voltage_density.jl"
 ```
 
-Stationary voltage density (and stationary rate) for a single LIF neuron
-without refractoriness!
+# Stationary voltage density (and stationary rate) for a single LIF neuron
+
+... without refractoriness
+
+## Initialization
 
 ````@example if_stationary_voltage_density
 using LinearAlgebra,Statistics,StatsBase
@@ -15,15 +18,16 @@ using ProgressMeter
 function onesparsemat(w::Real)
   return sparse(cat(w;dims=2))
 end
-
-# Time parameters
-const dt = 1E-4
-const Ttot = 30.
-
-# start with LIF model
 ````
 
-LIF neuron parameters
+## Time parameters
+
+````@example if_stationary_voltage_density
+const dt = 1E-4
+const Ttot = 30.
+````
+
+## LIF neuron with constant input
 
 ````@example if_stationary_voltage_density
 const myτ = 0.5
@@ -41,16 +45,25 @@ const in_const = S.IFInputCurrentConstant(hw_in)
 const conn_in = S.ConnectionIFInput([1.]);
 
 const pop = S.Population(ps,(conn_in,in_const))
+````
 
+that's it, let's make the network
 
-# that's it, let's make the network
-const ntw = S.RecurrentNetwork(dt,pop)
+````@example if_stationary_voltage_density
+const ntw = S.RecurrentNetwork(dt,pop);
+nothing #hide
+````
 
-# Record spike number and internal potential
+Record spike number and internal potential
+
+````@example if_stationary_voltage_density
 myrec1 = S.RecStateNow(ps,10,dt,Ttot)
 myrec2 = S.RecCountSpikes(ps,dt)
+````
 
-# Run the simulation
+Run the simulation
+
+````@example if_stationary_voltage_density
 times = (0:ntw.dt:Ttot)
 nt = length(times)
 ````
@@ -68,15 +81,18 @@ for (k,t) in enumerate(times)
   myrec2(t,k,ntw)
 end
 r0 = S.get_mean_rates(myrec2,dt,Ttot)[1]
-# show internal membrane potential
-_ = let tshow = (0.,5.)
+````
+
+plot internal membrane potential
+
+````@example if_stationary_voltage_density
+theplot = let tshow = (0.,5.)
   ts = myrec1.times
   y = myrec1.state_now[1,:]
   idx_keep = findall(t->tshow[1]<= t <= tshow[2],ts)
   plot(ts[idx_keep],y[idx_keep];leg=false,linewidth=2)
 end
-
-#
+plot(theplot)
 ````
 
 now, use Fokker-Planck theory and Richardson method
@@ -106,17 +122,19 @@ end
 
 r0 = inv(dv*sum(pps))
 
-#
-_ = let plt = plot(;xlabel="membrane potential",ylabel="prob. density",
+theplot = let plt = plot(;xlabel="membrane potential",ylabel="prob. density",
     leg=:topleft)
   histogram!(plt,myrec1.state_now[:];nbins=100,normalize=true,
     label="simulation",color=colorant"orange")
   plot!(plt,Vks,r0.*pps;label="Fokker-Plank",
    color=colorant"blue",linewidth=3)
 end
+plot(theplot)
+````
 
-# Let's do an f-I curve with this
+Let's generate an f-I curve (frequency as a function of input)
 
+````@example if_stationary_voltage_density
 function f_lif_num(h_in;dt=1E-4,Ttot=10.0)
   in_const = S.IFInputCurrentConstant(h_in)
   mypop = S.Population(ps,(conn_in,in_const))
@@ -153,8 +171,7 @@ function f_lif_semianalitic(h_in;dv=1E-3)
   return inv(dv*sum(ps))
 end
 
-#
-_ = let Ttot = 50.0
+theplot = let Ttot = 50.0
   nsim = 40
   nfp = 200
   inputs_sim = range(vth+0.01,80.0;length=nsim)
@@ -167,6 +184,7 @@ _ = let Ttot = 50.0
   plot!(plt,inputs_fp,y2; label="Fokker-Planck",linewidth=2,
       color=colorant"blue" )
 end
+plot(theplot)
 ````
 
 # Voltage density in the presence of input noise
@@ -207,8 +225,7 @@ end
 r0 = S.get_mean_rates(myrec4,dt,Ttot)[1]
 @info r0
 @info mean_and_std(myrec3.state_now[:])
-#
-_ = let tshow = (3.,20.)
+theplot = let tshow = (3.,20.)
   tshow = tshow .+ rec1_twup
   ts = myrec3.times
   y = myrec3.state_now[1,:]
@@ -216,6 +233,7 @@ _ = let tshow = (3.,20.)
   plot(ts[idx_keep],y[idx_keep];leg=false,linewidth=1,xlabel="time (s)",
     ylabel="membrane potential (mV)",color=:black)
 end
+plot(theplot)
 ````
 
 now, use Fokker-Planck theory and Richardson method
@@ -249,7 +267,7 @@ end
 
 r0 = inv(dv*sum(pps))
 
-_ = let plt = plot(;xlabel="membrane potential",ylabel="prob. density",
+theplot = let plt = plot(;xlabel="membrane potential",ylabel="prob. density",
     leg=:topleft)
   histogram!(plt,myrec3.state_now[:];
     nbins=100,normalize=true,label="simulation",
@@ -257,6 +275,7 @@ _ = let plt = plot(;xlabel="membrane potential",ylabel="prob. density",
   plot!(plt,Vks,r0.*pps;color=colorant"blue",
     linewidth=2,label="Fokker-Plank")
 end
+plot(theplot)
 ````
 
 ---
