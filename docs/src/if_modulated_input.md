@@ -2,12 +2,10 @@
 EditURL = "https://github.com/dylanfesta/SpikingRNNs.jl/blob/master/examples/if_modulated_input.jl"
 ```
 
-# Sinuisodal input for two LIF neurons
+# LIF neurons receive a sinusoidal spiking input
 
-
-Several LIF E neurons receive a sinusoidal spiking input.
-
-I plot the input and the spike train.
+The neurons are independent from each other, they also receive independent
+input trains, modulated sinusoidally.
 
 ````@example if_modulated_input
 push!(LOAD_PATH, abspath(@__DIR__,".."))
@@ -66,11 +64,11 @@ end
 ## Input object
 
 ````@example if_modulated_input
-const ps_input = S.IFInputSpikesFunScalar(N,ratefun,ratefun_upper)
+const ps_input = S.IFInputSpikesFunScalar(N,ratefun,ratefun_upper);
+nothing #hide
 ````
 
-connection from input to E
-let's define a conductance based kernel this time!
+connection from input to E : the synaptic kernel is conductance based.
 
 ````@example if_modulated_input
 const τker = 0.3
@@ -114,13 +112,15 @@ for (k,t) in enumerate(times)
   rec_state(t,k,network)
   rec_spikes(t,k,network)
   S.dynamics_step!(t,network)
-end
+end;
+nothing #hide
 ````
 
 this is useful for visualization only
 
 ````@example if_modulated_input
-S.add_fake_spikes!(1.5vth,rec_state,rec_spikes)
+S.add_fake_spikes!(1.5vth,rec_state,rec_spikes);
+nothing #hide
 ````
 
 ## Plot internal potential for a pair of neurons
@@ -149,8 +149,8 @@ theraster = let rdt = 0.01,
 end
 ````
 
-The raster might not be visible online, but it can be saved
-locally as a png image as follows:
+The raster might not be visible online, or it might have low quality,
+but if you run this script locally, you can save it as a png image as follows:
 `save("<save path>",theraster)`
 
 ---

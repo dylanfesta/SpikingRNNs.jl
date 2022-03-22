@@ -21,11 +21,15 @@ end
 struct IFInputCurrentFunVector <: PopulationState
   f::Function # f(::Float64) -> Array{Float64}
 end
+struct IFInputCurrentNormal <: PopulationState
+  μ::Float64
+  σ::Float64
+end
 
 function forward_signal!(::Real,dt::Real,
         pspost::PSIFNeuron,conn::ConnectionIFInput{SyKNone},
         pspre::IFInputCurrentConstant{Float64})
-  @inbounds @simd for i in eachindex(inputs) 
+  @inbounds @simd for i in eachindex(pspost.input) 
   if ! pspost.isrefractory[i]
     pspost.input[i] += conn.weights[i]*pspre.current
     end
@@ -48,7 +52,7 @@ function forward_signal!(t_now::Real,::Real,
   curr_now::Float64 = pspre.f(t_now)
   @inbounds @simd for i in eachindex(pspost.input) 
   if ! pspost.isrefractory[i]
-    pspost.input[i] += conn.weights[i]*curr_now
+      pspost.input[i] += conn.weights[i]*curr_now
     end
   end
   return nothing
@@ -58,8 +62,20 @@ function forward_signal!(t_now::Real,::Real,
         pspre::IFInputCurrentFunVector)
   curr_now::Vector{Float64} = pspre.f(t_now)
   @inbounds @simd for i in eachindex(pspost.input) 
-  if ! pspost.isrefractory[i]
-    pspost.input[i] += conn.weights[i]*curr_now[i]
+    if ! pspost.isrefractory[i]
+      pspost.input[i] += conn.weights[i]*curr_now[i]
+    end
+  end
+  return nothing
+end
+function forward_signal!(::Real,dt::Real,
+        pspost::PSIFNeuron,conn::ConnectionIFInput{SyKNone},
+        pspre::IFInputCurrentNormal)
+  # regularize so that std is σ for isolated neuron
+  σstar = sqrt(2*pspost.τ/dt)*pspre.σ
+  @inbounds @simd for i in eachindex(pspost.input) 
+    if ! pspost.isrefractory[i]
+      pspost.input[i] += conn.weights[i]*(pspre.μ+σstar*randn())
     end
   end
   return nothing
