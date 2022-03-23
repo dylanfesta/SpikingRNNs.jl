@@ -1,5 +1,5 @@
 ```@meta
-EditURL = "https://github.com/dylanfesta/SpikingRNNs.jl/blob/master/examples/plasticyFFtest.jl"
+EditURL = "https://github.com/dylanfesta/SpikingRNNs.jl/blob/master/examples/plasticity_triplet_2poisson.jl"
 ```
 
 # Plasticity test for forced spikes
@@ -7,7 +7,7 @@ EditURL = "https://github.com/dylanfesta/SpikingRNNs.jl/blob/master/examples/pla
 Plasticity between 2 "virtual" neurons The neurons are input neurons,
  i.e. their spikes are entirely driven and specified externally
 
-````@example plasticyFFtest
+````@example plasticity_triplet_2poisson
 using LinearAlgebra,Statistics,StatsBase,Distributions
 using Plots,NamedColors ; theme(:default)
 using SparseArrays
@@ -23,7 +23,7 @@ const Ttot = 10.0
 start simple: two Poisson neurons
 1 is connected to 2 and has some plasticity
 
-````@example plasticyFFtest
+````@example plasticity_triplet_2poisson
 const rat1,rat2 = 2.,20.
 const ps1 = S.PSPoisson(rat1,1E4,1)
 const ps2 = S.PSPoisson(rat2,-1E4,1)
@@ -31,7 +31,7 @@ const ps2 = S.PSPoisson(rat2,-1E4,1)
 
 ## Define a triplet-based plasticity rule
 
-````@example plasticyFFtest
+````@example plasticity_triplet_2poisson
 const myplasticity = let scal=5E-2,
   τplus = 0.2,
   τminus = 0.2
@@ -51,7 +51,7 @@ end
 neuron 1 receives no connections
 neuron 2 is connected to 1
 
-````@example plasticyFFtest
+````@example plasticity_triplet_2poisson
 const wstart = 10.
 const conn_2_1 = S.ConnectionPlasticityTest(oneDSparse(wstart),myplasticity)
 
@@ -63,7 +63,7 @@ nothing #hide
 
 ### Set recorders: spikes and weights
 
-````@example plasticyFFtest
+````@example plasticity_triplet_2poisson
 const krec=1
 const rec_spikes1 = S.RecSpikes(ps1,50.0,Ttot)
 const rec_spikes2 =  S.RecSpikes(ps2,50.0,Ttot)
@@ -73,14 +73,14 @@ nothing #hide
 
 ## Run the network
 
-````@example plasticyFFtest
+````@example plasticity_triplet_2poisson
 const times = (0:dt:Ttot)
 const nt = length(times)
 ````
 
 clean up, reset weights
 
-````@example plasticyFFtest
+````@example plasticity_triplet_2poisson
 S.reset!.([rec_spikes1,rec_spikes2,rec_weights])
 S.reset!.([ps1,ps2])
 S.reset!.(conn_2_1.plasticities)
@@ -97,7 +97,7 @@ end
 
 ### Plot the spike raster alone
 
-````@example plasticyFFtest
+````@example plasticity_triplet_2poisson
 theplot = let plt=plot(;leg=false,markersize=10),
   tra1 = S.get_spiketrains(rec_spikes1)[1]
   tra2 = S.get_spiketrains(rec_spikes2)[1]
@@ -111,7 +111,7 @@ plot(theplot)
 
 ### Plot weight change and spike raster
 
-````@example plasticyFFtest
+````@example plasticity_triplet_2poisson
 theplot = let _recw = S.get_content(rec_weights)
   x=_recw.times
   y = [first(w) for w in _recw.weights_now]
