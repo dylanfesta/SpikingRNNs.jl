@@ -13,7 +13,11 @@ end
 
 function (plb::PlasticityBoundsNonnegative)(w::R,Δw::R) where R
   ret = w+Δw
-  return min(0.0,ret)
+  if ret < zero(R)
+    return  zero(R)
+  else 
+    return ret
+  end
 end
 function (plb::PlasticityBoundsLowHigh)(w::R,Δw::R) where R
   ret = w+Δw
@@ -98,6 +102,13 @@ end
 
 
 ### Triplets rule
+"""
+  PlasticityTriplets(τplus,τminus,τx,τy,
+      A2plus,A3plus,A2minus,A3minus,n_post,n_pre;
+      plasticity_bounds=PlasticityBoundsNonnegative())
+
+it construc!      
+"""
 struct PlasticityTriplets <: PlasticityRule
   τplus::Float64
   τminus::Float64

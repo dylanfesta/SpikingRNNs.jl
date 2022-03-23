@@ -544,6 +544,13 @@ end
 # this makes life much easier where there is structural plasticity.
 # BUT please use it with a large k (e.g. 2 Hz )
 
+"""
+  RecWeightsFull(conn::Connection,
+        everyk::Integer,dt::Float64,Tend::Float64; 
+        Tstart::Float64=0.0)
+
+Constructor, fields are self explanatory        
+"""
 struct RecWeightsFull
   weights::SparseMatrixCSC{Float64,Int64}
   isdone::Ref{Bool}
