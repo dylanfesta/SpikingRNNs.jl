@@ -36,23 +36,33 @@ end
 end
 
 # Pairwise plasticity 
+
+
+"""
+
+    function PairSTDP(τplus,τminus,Aplus,Aminus,n_post,n_pre;
+         plasticity_bounds=PlasticityBoundsNonnegative())
+
+constructor        
+"""
 struct PairSTDP <: PlasticityRule
-  τplus::Float64
-  τminus::Float64
   Aplus::Float64
   Aminus::Float64
-  o::Vector{Float64} # pOst
-  r::Vector{Float64} # pRe
+  tracerplus::Trace 
+  traceominus::Trace
   bounds::PlasticityBounds
   function PairSTDP(τplus,τminus,Aplus,Aminus,n_post,n_pre;
        plasticity_bounds=PlasticityBoundsNonnegative())
-    new(τplus,τminus,Aplus,Aminus,zeros(n_post),zeros(n_pre),plasticity_bounds)
+    new(Aplus,Aminus,
+      Trace(τplus,n_pre),
+      Trace(τminus,n_post),
+      plasticity_bounds)
   end
 end
 
 function reset!(pl::PairSTDP)
-  fill!(pl.r,0.0)
-  fill!(pl.o,0.0)
+  reset!(pl.traceplus)
+  reset!(pl.traceminus)
   return nothing
 end
 
@@ -71,8 +81,8 @@ function plasticity_update!(::Real,dt::Real,
 		_posts_nz = nzrange(conn.weights,j_pre) # indexes of corresponding pre in nz space
 		@inbounds for _pnz in _posts_nz
       ipost = row_idxs[_pnz]
-      Δw = -plast.o[ipost]*plast.Aminus
-      weightsnz[_pnz] = max(0.0,weightsnz[_pnz]-Δw)
+      Δw = -plast.traceominus[ipost]*plast.Aminus
+      weightsnz[_pnz] = plast.bounds(weightsnz[_pnz],Δw)
     end
   end
   # postsynaptic spike: go along w row
@@ -83,22 +93,24 @@ function plasticity_update!(::Real,dt::Real,
       _end = _colptr[j_pre+1]-1
       _pnz = searchsortedfirst(row_idxs,i_post,_start,_end,Base.Order.Forward)
       if (_pnz<=_end) && (row_idxs[_pnz] == i_post) # must check!
-        Δw = plast.r[j_pre]*plast.Aplus 
-        weightsnz[_pnz]+= Δw
+        Δw = plast.tracerplus[j_pre]*plast.Aplus 
+        weightsnz[_pnz] = plast.bounds(weightsnz[_pnz],Δw)
       end
     end
   end
   # update the plasticity trace variables
   for j_pre in idx_pre_spike
-    plast.r[j_pre]+=1.0
+    plast.tracerplus[j_pre]+=1.0
   end
   for i_post in idx_post_spike
-    plast.o[i_post]+=1.0
+    plast.traceominus[i_post]+=1.0
   end
-  @. plast.r -= plast.r*dt/plast.τplus
-  @. plast.o -= plast.o*dt/plast.τminus
+  # time decay
+  trace_decay!(plast.tracerplus,dt)
+  trace_decay!(plast.traceominus,dt)
   return nothing
 end
+
 
 
 ### Triplets rule
@@ -110,33 +122,31 @@ end
 it construc!      
 """
 struct PlasticityTriplets <: PlasticityRule
-  τplus::Float64
-  τminus::Float64
-  τx::Float64
-  τy::Float64
   A2plus::Float64
   A3plus::Float64
   A2minus::Float64
   A3minus::Float64
-  o1::Vector{Float64} # pOst
-  o2::Vector{Float64} # pOst
-  r1::Vector{Float64} # pRe
-  r2::Vector{Float64} # pRe
+  trace2rplus::Trace # a.k.a r1
+  trace3oplus::Trace # a.k.a o2
+  trace2ominus::Trace # a.k.a o1
+  trace3rminus::Trace # a.k.a r2
   bounds::PlasticityBounds
   function PlasticityTriplets(τplus,τminus,τx,τy,
       A2plus,A3plus,A2minus,A3minus,n_post,n_pre;
         plasticity_bounds=PlasticityBoundsNonnegative())
-    new(τplus,τminus,τx,τy,A2plus,A3plus,A2minus,A3minus,
-        ntuple(_->zeros(n_post),2)...,
-        ntuple(_->zeros(n_pre),2)...,plasticity_bounds)
+    trace_pre(τ) = Trace(τ,n_pre)
+    trace_post(τ) = Trace(τ,n_post)
+    new(A2plus,A3plus,A2minus,A3minus,
+      Trace(τplus,n_pre),
+      Trace(τy,n_post),
+      Trace(τminus,n_post),
+      Trace(τx,n_pre),
+      plasticity_bounds)
   end
 end
 
 function reset!(pl::PlasticityTriplets)
-  fill!(pl.r1,0.0)
-  fill!(pl.r2,0.0)
-  fill!(pl.o1,0.0)
-  fill!(pl.o2,0.0)
+  reset!.((pl.trace2rplus,pl.trace2ominus,pl.trace3oplus,pl.trace3rminus))
   return nothing
 end
 
@@ -149,71 +159,72 @@ function plasticity_update!(::Real,dt::Real,
 	weightsnz = nonzeros(conn.weights) # direct access to weights 
   idx_pre_spike = findall(pspre.isfiring) 
   idx_post_spike = findall(pspost.isfiring) 
-  # update the plasticity traces 1
+  # update the pairwise plasticity traces 
   for j_pre in idx_pre_spike
-    plast.r1[j_pre]+=1.0 
+    plast.trace2rplus[j_pre]+=1.0 
   end
   for i_post in idx_post_spike
-    plast.o1[i_post]+=1.0
+    plast.trace2ominus[i_post]+=1.0
   end
   # update synapses
   # presynpatic spike go along w column
   for j_pre in idx_pre_spike
 		_posts_nz = nzrange(conn.weights,j_pre) # indexes of corresponding pre in nz space
+    trace3_jpre = plast.trace3rminus[j_pre]
 		@inbounds for _pnz in _posts_nz
       i_post = row_idxs[_pnz]
-      Δw = -plast.o1[i_post]*(plast.A2minus+plast.A3minus*plast.r2[j_pre])
+      Δw = -plast.trace2ominus[i_post]*(plast.A2minus+plast.A3minus*trace3_jpre)
       weightsnz[_pnz] = plast.bounds(weightsnz[_pnz],Δw)
     end
   end
   # postsynaptic spike: go along w row
   # innefficient ... need to search i element for each column
   for i_post in idx_post_spike
+    trace3_ipost = plast.trace3oplus[i_post]
     for j_pre in (1:pspre.n)
       _start = _colptr[j_pre]
       _end = _colptr[j_pre+1]-1
       _pnz = searchsortedfirst(row_idxs,i_post,_start,_end,Base.Order.Forward)
       if (_pnz<=_end) && (row_idxs[_pnz] == i_post) # must check!
-        Δw = plast.r1[j_pre]*(plast.A2plus+plast.A3plus*plast.o2[i_post])
+        Δw = plast.trace2rplus[j_pre]*(plast.A2plus+plast.A3plus*trace3_ipost)
         weightsnz[_pnz] = plast.bounds(weightsnz[_pnz],Δw)
       end
     end
   end
   # update the plasticity traces 2
   for j_pre in idx_pre_spike
-    plast.r2[j_pre]+=1.0
+    plast.trace3rminus[j_pre]+=1.0
   end
   for i_post in idx_post_spike
-    plast.o2[i_post]+=1.0
+    plast.trace3oplus[i_post]+=1.0
   end
-  # and timestep all
-  @. plast.r1 -= plast.r1*dt/plast.τplus
-  @. plast.r2 -= plast.r2*dt/plast.τx
-  @. plast.o1 -= plast.o1*dt/plast.τminus
-  @. plast.o2 -= plast.o2*dt/plast.τy
+  # and time decay
+  trace_decay!.( (plast.trace2rplus,plast.trace2ominus,
+                  plast.trace3rminus,plast.trace3oplus) ,dt)
   return nothing
 end
-
 
 # Vogels et al 2011 plasticity rule
 
 struct PlasticityInhibitoryVogels <: PlasticityRule
-  τ::Float64
   η::Float64
   α::Float64
-  o::Vector{Float64} # pOst
-  r::Vector{Float64} # pRe
+  traceo::Trace
+  tracer::Trace
   bounds::PlasticityBounds
   function PlasticityInhibitoryVogels(τ,η,n_post,n_pre;
       r_target=5.0,
       plasticity_bounds::PlasticityBounds=PlasticityBoundsNonnegative())
     α = 2*r_target*τ
-    new(τ,η,α,zeros(n_post),zeros(n_pre),plasticity_bounds)
+    new(η,α,
+      Trace(τ,n_post),
+      Trace(τ,n_pre),
+      plasticity_bounds)
   end
 end
 function reset!(pl::PlasticityInhibitoryVogels)
-  fill!(pl.r,0.0)
-  fill!(pl.o,0.0)
+  reset!(pl.traceo)
+  reset!(pl.tracer)
   return nothing
 end
 
@@ -228,10 +239,10 @@ function plasticity_update!(::Real,dt::Real,
   idx_post_spike = findall(pspost.isfiring) 
   # update traces first  (mmmh)
   for j_pre in idx_pre_spike
-    plast.r[j_pre]+=1.0
+    plast.tracer[j_pre]+=1.0
   end
   for i_post in idx_post_spike
-    plast.o[i_post]+=1.0
+    plast.traceo[i_post]+=1.0
   end
   # update synapses
   # presynpatic spike go along w column
@@ -239,8 +250,7 @@ function plasticity_update!(::Real,dt::Real,
 		_posts_nz = nzrange(conn.weights,j_pre) # indexes of corresponding pre in nz space
 		@inbounds for _pnz in _posts_nz
       ipost = row_idxs[_pnz]
-      Δw = plast.η*(plast.o[ipost]-plast.α)
-      #@show plast.o[ipost]
+      Δw = plast.η*(plast.traceo[ipost]-plast.α)
       weightsnz[_pnz] = plast.bounds(weightsnz[_pnz],Δw)
     end
   end
@@ -252,13 +262,12 @@ function plasticity_update!(::Real,dt::Real,
       _end = _colptr[j_pre+1]-1
       _pnz = searchsortedfirst(row_idxs,i_post,_start,_end,Base.Order.Forward)
       if (_pnz<=_end) && (row_idxs[_pnz] == i_post) # must check!
-        Δw = plast.η*plast.r[j_pre]
-        #@show Δw
+        Δw = plast.η*plast.tracer[j_pre]
         weightsnz[_pnz] = plast.bounds(weightsnz[_pnz],Δw)
       end
     end
   end
-  @. plast.r -= plast.r*dt/plast.τ
-  @. plast.o -= plast.o*dt/plast.τ
+  trace_decay!(plast.traceo,dt)
+  trace_decay!(plast.tracer,dt)
   return nothing
 end

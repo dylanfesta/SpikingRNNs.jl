@@ -301,7 +301,6 @@ end
 
 function reset!(tra::Trace)
   fill!(tra.val,0.0) 
-  tra.t_last[]=0.0
   return nothing
 end
 
