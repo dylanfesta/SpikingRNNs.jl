@@ -36,14 +36,13 @@ end
 end
 
 # Pairwise plasticity 
-
-
 """
-
     function PairSTDP(τplus,τminus,Aplus,Aminus,n_post,n_pre;
          plasticity_bounds=PlasticityBoundsNonnegative())
 
-constructor        
+constructor for "classic" pairwise STPD rule.
+The `Aminus` coefficient, when positive, causes a *reduction*
+in the weights. 
 """
 struct PairSTDP <: PlasticityRule
   Aplus::Float64
