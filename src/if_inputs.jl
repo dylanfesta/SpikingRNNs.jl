@@ -155,10 +155,10 @@ function forward_signal!(t_now::Real,dt::Real,
 end
 
 
-@inline function get_next_input_spiketime(tnow::Real,ps::IFInputCurrentConstant{Float64},::Integer)
+@inline function get_next_input_spiketime(tnow::Real,ps::IFInputSpikesConstant{Float64},::Integer)
   return tnow - log(rand())/ps.rate  # rand(Exponential())
 end
-@inline function get_next_input_spiketime(tnow::Real,ps::IFInputCurrentConstant{Vector{Float64}},i::Integer)
+@inline function get_next_input_spiketime(tnow::Real,ps::IFInputSpikesConstant{Vector{Float64}},i::Integer)
   return tnow - log(rand())/ps.rate[i]
 end
 @inline function get_next_input_spiketime(tnow::Real,ps::IFInputSpikesFunScalar,::Integer)
