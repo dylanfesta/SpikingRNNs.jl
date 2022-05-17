@@ -32,6 +32,8 @@ struct IFFFixedThreshold <: IFFiring
 end
 
 # I am skipping the neuron type struct, because it is really redundant
+# Somatic kernel depends on internal voltage only. Simple leak, or leak plus 
+# expontential buildup of action potential.
 struct PSIFNeuron{So<:SomaticKernel,F<:IFFiring} <: PSSpiking
   τ::Float64
   capacitance::Float64
@@ -192,6 +194,7 @@ end
 reset!(sk::SyKConductanceDoubleExponential) = ( reset!(sk.trace_plus) ; reset!(sk.trace_minus))
 
 
+# current based synapses
 function ConnectionIF(τ::Float64,
     weights::Union{Matrix{Float64},SparseMatrixCSC{Float64,Int64}};
     is_excitatory::Bool=true,plasticity::NTuple=(NoPlasticity(),))
@@ -202,6 +205,7 @@ function ConnectionIF(τ::Float64,
   syk = SyKCurrentExponential(npost,τ;is_excitatory=is_excitatory)
   return ConnectionIF(syk,weights,plasticity) 
 end
+# conductance based synapses
 function ConnectionIF_conductance(τ::Float64,
     v_reversal::Float64,
     weights::Union{Matrix{Float64},SparseMatrixCSC{Float64,Int64}};plasticity::NTuple=(NoPlasticity(),))
@@ -212,6 +216,7 @@ function ConnectionIF_conductance(τ::Float64,
   syk = SyKConductanceExponential(npost,τ,v_reversal)
   return ConnectionIF(syk,weights,plasticity) 
 end
+# conductance based, double exp synaptic kernel
 function ConnectionIF_conductance_double(τplus::Float64,τminus::Float64,
     v_reversal::Float64,
     weights::Union{Matrix{Float64},SparseMatrixCSC{Float64,Int64}};plasticity::NTuple=(NoPlasticity(),))

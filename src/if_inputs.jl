@@ -87,7 +87,7 @@ abstract type AbstractIFInputSpikes <: PopulationState end
 struct IFInputSpikesConstant{V<:Union{Float64,Vector{Float64}}} <: AbstractIFInputSpikes
   rate::V
   t_last_spike::Vector{Float64}
-  function IFInputSpikesConstat(n::Integer,rat::Union{Float64,Vector{Float64}})
+  function IFInputSpikesConstant(n::Integer,rat::Union{Float64,Vector{Float64}})
     tlast = fill(0.0,n)
     new{typeof(rat)}(rat,tlast)
   end
