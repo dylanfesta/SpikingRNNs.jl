@@ -66,7 +66,7 @@ function reset!(pl::PairSTDP)
 end
 
 function plasticity_update!(::Real,dt::Real,
-     pspost::PSSpikingType,conn::Connection,pspre::PSSpikingType,
+     pspost::PSSpiking,conn::Connection,pspre::PSSpiking,
      plast::PairSTDP)
   # elements of sparse matrix that I need
   _colptr = SparseArrays.getcolptr(conn.weights) # column indexing
@@ -150,7 +150,7 @@ function reset!(pl::PlasticityTriplets)
 end
 
 function plasticity_update!(::Real,dt::Real,
-     pspost::PSSpikingType,conn::Connection,pspre::PSSpikingType,
+     pspost::PSSpiking,conn::Connection,pspre::PSSpiking,
      plast::PlasticityTriplets)
   # elements of sparse matrix that I need
   _colptr = SparseArrays.getcolptr(conn.weights) # column indexing
@@ -228,7 +228,7 @@ function reset!(pl::PlasticityInhibitoryVogels)
 end
 
 function plasticity_update!(::Real,dt::Real,
-     pspost::PSSpikingType,conn::Connection,pspre::PSSpikingType,
+     pspost::PSSpiking,conn::Connection,pspre::PSSpiking,
      plast::PlasticityInhibitoryVogels)
   # elements of sparse matrix that I need
   _colptr = SparseArrays.getcolptr(conn.weights) # column indexing
