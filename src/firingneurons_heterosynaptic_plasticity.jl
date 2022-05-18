@@ -356,13 +356,12 @@ function sum_and_count_over_cols!(colsum::Vector{R},nels::Vector{I},
   return nothing
 end
 
-
 function _het_plasticity_fix_rows!(alloc::Vector{Float64},nel::Vector{Int64},
     weights::SparseMatrixCSC,
     constraint::HetUpperLimit,::HetAdditive,::Union{HetBoth,HetIncoming})
   sum_and_count_over_rows!(alloc,nel,weights)
   sum_max = constraint.wsum_max
-  for (k,rowsum) in iterate(alloc)
+  for (k,rowsum) in enumerate(alloc)
     alloc[k] = rowsum <= sum_max ? 0.0 : (sum_max - rowsum )/ nel
   end
   return nothing
@@ -387,7 +386,7 @@ function _het_plasticity_fix_cols!(alloc::Vector{Float64},nel::Vector{Int64},
     constraint::HetUpperLimit,::HetAdditive,::Union{HetBoth,HetOutgoing})
   sum_and_count_over_cols!(alloc,nel,weights)
   sum_max = constraint.wsum_max
-  for (k,colsum) in iterate(alloc)
+  for (k,colsum) in enumerate(alloc)
     alloc[k] = colsum <= sum_max ? 0.0 : (sum_max - colsum )/ nel
   end
   return nothing
