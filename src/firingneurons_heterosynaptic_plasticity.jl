@@ -292,8 +292,8 @@ struct PlasticityHeterosynapticApprox{
     _tcounter = Ref(0.0)  
     Nel_rows = Vector{Int64}(undef,Npost)
     Nel_cols = Vector{Int64}(undef,Npre)
-    allocrows = Vector{Float64}(undef,Npost)
-    alloccols = Vector{Float64}(undef,Npre)
+    allocrows = Vector{Float64}(undef,Npre)
+    alloccols = Vector{Float64}(undef,Npost)
     return new{HC,HM,HT}(hc,hm,ht,
       Δt_update,_tcounter,Nel_rows,Nel_cols,alloccols,allocrows)
   end
