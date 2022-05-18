@@ -78,6 +78,25 @@ function sparse_wmat_rowfun(make_a_row::Function,
   return wmat
 end
 
+"""
+   sparse_constant_wmat(npost::Integer,npre::Integer,p::Real,j_val::Real ; 
+      scal::Float64=1.0, 
+      no_autapses::Bool=true,
+      rowsum::Union{Nothing,Float64}=nothing)
+   
+  Sparse weight matrix
+  
+  # Arguments
+  + `npost::Integer` : number of postsynaptic neurons 
+  + `npre::Integer` : number of presynaptic neurons 
+  + `p::Real` : matrix density
+  + `j_val::Real` : constant weight in matrix
+
+  # Optional arguments
+  + `scal::Float64=1.0` : at the very end scales the matrix by this value
+  + `no_autapses::Bool` : removes autapses
+  + `rowsum::Union{Nothing,Float64}=nothing` : if a number, each row sums to this number (before scaling)
+"""
 function sparse_constant_wmat(npost::Integer,npre::Integer,p::Real,j_val::Real ; 
     scal::Float64=1.0, # final scaling
     no_autapses::Bool=true, # no autapses ?

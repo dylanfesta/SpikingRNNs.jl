@@ -211,17 +211,23 @@ function get_spiketrains(rec::Union{RecSpikes,RecSpikesContent};resort=nothing)
   return ret
 end
 
+
+
+# warning: when neurons has zero rate, it never spiked, so it's not in the dictinary
 function get_mean_rates(rec::Union{RecSpikes,RecSpikesContent};
-    (Tend::Float64)=0.0)
-  Tend = min(Tend,rec.Tend)  
-  ΔT = Tend-rec.Tstart
+    Tstart::Float64=Inf,Tend::Float64=Inf)
+  Tstart = isfinite(Tstart) ? Tstart : rec.Tstart
+  Tend = isfinite(Tend) ? Tend : rec.Tend
+  ΔT = Tend-Tstart
   dict = get_spiketimes_dictionary(rec)
   ret = Dict{Int64,Float64}()
   for (neu,spks) in pairs(dict)
-    ret[neu] = length(spks)/ΔT
+    nspk = count( Tstart .<= spks .<= Tend )
+    ret[neu] = nspk/ΔT
   end
   return ret
 end
+
 
 # adds a pulse at time of spiking
 # voltage_traces : rows are neurons, columns are timesteps
