@@ -197,35 +197,35 @@ reset!(sk::SyKConductanceDoubleExponential) = (reset!(sk.trace_plus) ; reset!(sk
 # current based synapses
 function ConnectionIF(τ::Float64,
     weights::Union{Matrix{Float64},SparseMatrixCSC{Float64,Int64}};
-    is_excitatory::Bool=true,plasticity::NTuple=(NoPlasticity(),))
+    is_excitatory::Bool=true,plasticities=(NoPlasticity(),))
   if weights isa Matrix 
     weights = sparse(weights)
   end
   npost = size(weights,1)
   syk = SyKCurrentExponential(npost,τ;is_excitatory=is_excitatory)
-  return ConnectionIF(syk,weights,plasticity) 
+  return ConnectionIF(syk,weights,plasticities) 
 end
 # conductance based synapses
 function ConnectionIF_conductance(τ::Float64,
-    v_reversal::Float64,
-    weights::Union{Matrix{Float64},SparseMatrixCSC{Float64,Int64}};plasticity::NTuple=(NoPlasticity(),))
+    v_reversal::Float64,weights::Union{Matrix{Float64},SparseMatrixCSC{Float64,Int64}};
+    plasticities=(NoPlasticity(),))
   if weights isa Matrix 
     weights = sparse(weights)
   end
   npost = size(weights,1)
   syk = SyKConductanceExponential(npost,τ,v_reversal)
-  return ConnectionIF(syk,weights,plasticity) 
+  return ConnectionIF(syk,weights,plasticities) 
 end
 # conductance based, double exp synaptic kernel
 function ConnectionIF_conductance_double(τplus::Float64,τminus::Float64,
-    v_reversal::Float64,
-    weights::Union{Matrix{Float64},SparseMatrixCSC{Float64,Int64}};plasticity::NTuple=(NoPlasticity(),))
+    v_reversal::Float64, weights::Union{Matrix{Float64},SparseMatrixCSC{Float64,Int64}};
+    plasticities=(NoPlasticity(),))
   if weights isa Matrix 
     weights = sparse(weights)
   end
   npost = size(weights,1)
   syk = SyKConductanceDoubleExponential(npost,τplus,τminus,v_reversal)
-  return ConnectionIF(syk,weights,plasticity) 
+  return ConnectionIF(syk,weights,plasticities) 
 end
 
 
