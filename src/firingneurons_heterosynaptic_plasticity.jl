@@ -362,7 +362,7 @@ function _het_plasticity_fix_rows!(alloc::Vector{Float64},nel::Vector{Int64},
   sum_and_count_over_rows!(alloc,nel,weights)
   sum_max = constraint.wsum_max
   for (k,rowsum) in enumerate(alloc)
-    alloc[k] = rowsum <= sum_max ? 0.0 : (sum_max - rowsum )/ nel
+    alloc[k] = rowsum <= sum_max ? 0.0 : (sum_max - rowsum )/nel[k]
   end
   return nothing
 end
@@ -387,7 +387,7 @@ function _het_plasticity_fix_cols!(alloc::Vector{Float64},nel::Vector{Int64},
   sum_and_count_over_cols!(alloc,nel,weights)
   sum_max = constraint.wsum_max
   for (k,colsum) in enumerate(alloc)
-    alloc[k] = colsum <= sum_max ? 0.0 : (sum_max - colsum )/ nel
+    alloc[k] = colsum <= sum_max ? 0.0 : (sum_max - colsum )/nel[k]
   end
   return nothing
 end
@@ -396,7 +396,7 @@ function _het_plasticity_fix_cols!(alloc::Vector{Float64},nel::Vector{Int64},
     constraint::HetStrictSum,::HetAdditive,::Union{HetBoth,HetOutgoing})
   sum_and_count_over_cols!(alloc,nel,weights)
   sum_max = constraint.wsum_max
-  @. alloc = (sum_max - alloc )/ nel
+  @. alloc = (sum_max-alloc)/nel
   return nothing
 end
 function _het_plasticity_fix_cols!(::Vector{Float64},::Vector{Int64},
