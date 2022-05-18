@@ -141,10 +141,10 @@ function process_spikes!(t_now::Real,ps::PSIFNeuron{SK,F}) where {SK,F<:IFFFixed
   return nothing
 end
 
-struct ConnectionIF{S<:SynapticKernel} <: AbstractConnectionIF{S}
+struct ConnectionIF{S<:SynapticKernel,M,PL<:NTuple{M,PlasticityRule}} <: AbstractConnectionIF{S}
   synaptic_kernel::S
   weights::SparseMatrixCSC{Float64,Int64}
-  plasticities::PL where {M,PL<:NTuple{M,PlasticityRule}}
+  plasticities::PL
 end
 function reset!(conn::ConnectionIF)
   reset!(conn.synaptic_kernel)
@@ -191,7 +191,7 @@ function SyKConductanceDoubleExponential(n::Integer,
   trminus = Trace(τminus,n)  
   return SyKConductanceDoubleExponential(τplus,τminus,v_reversal,trplus,trminus)
 end
-reset!(sk::SyKConductanceDoubleExponential) = ( reset!(sk.trace_plus) ; reset!(sk.trace_minus))
+reset!(sk::SyKConductanceDoubleExponential) = (reset!(sk.trace_plus) ; reset!(sk.trace_minus))
 
 
 # current based synapses

@@ -32,8 +32,8 @@ const myplasticity = let scal=5E-2,
   τy = 0.3
   A2plus = scal*0.
   A3plus = scal*1.
-  A2minus = scal*5.
-  A3minus = scal*2.
+  A2minus = -scal*5.
+  A3minus = -scal*2.
   (n_post,n_pre) = (1,1) 
   S.PlasticityTriplets(τplus,τminus,τx,τy,A2plus,A3plus,
     A2minus,A3minus,n_post,n_pre)
