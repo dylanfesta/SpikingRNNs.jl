@@ -195,6 +195,7 @@ function get_spiketimes_dictionary(rec::Union{RecSpikes,RecSpikesContent})
   return ret
 end
 
+
 # does not necessarily preserve neuron information, but it is useful for rasters
 function get_spiketrains(rec::Union{RecSpikes,RecSpikesContent};resort=nothing)
   spk_t,spk_neu = get_spiketimes_spikeneurons(rec)
@@ -208,7 +209,7 @@ function get_spiketrains(rec::Union{RecSpikes,RecSpikesContent};resort=nothing)
       return Float64[]
     end
   end
-  return ret
+  return ret,neus
 end
 
 

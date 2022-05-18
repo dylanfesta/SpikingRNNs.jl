@@ -359,34 +359,55 @@ end
 
 function _het_plasticity_fix_rows!(alloc::Vector{Float64},nel::Vector{Int64},
     weights::SparseMatrixCSC,
-    constraint::HeterosynapticConstraint,::HetAdditive,::Union{HetBoth,HetIncoming})
+    constraint::HetUpperLimit,::HetAdditive,::Union{HetBoth,HetIncoming})
+  sum_and_count_over_rows!(alloc,nel,weights)
+  sum_max = constraint.wsum_max
+  for (k,rowsum) in iterate(alloc)
+    alloc[k] = rowsum <= sum_max ? 0.0 : (sum_max - rowsum )/ nel
+  end
+  return nothing
+end
+function _het_plasticity_fix_rows!(alloc::Vector{Float64},nel::Vector{Int64},
+    weights::SparseMatrixCSC,
+    constraint::HetStrictSum,::HetAdditive,::Union{HetBoth,HetIncoming})
   sum_and_count_over_rows!(alloc,nel,weights)
   sum_max = constraint.wsum_max
   @. alloc = (sum_max - alloc )/ nel
   return nothing
 end
-function _het_plasticity_fix_rows!(alloc::Vector{Float64},nel::Vector{Int64},
+function _het_plasticity_fix_rows!(::Vector{Float64},::Vector{Int64},
     ::SparseMatrixCSC,::HeterosynapticConstraint,
     ::HeterosynapticMethod,::HetOutgoing)
   return nothing
 end
+
+
 function _het_plasticity_fix_cols!(alloc::Vector{Float64},nel::Vector{Int64},
     weights::SparseMatrixCSC,
-    constraint::HeterosynapticConstraint,::HetAdditive,::Union{HetBoth,HetOutgoing})
+    constraint::HetUpperLimit,::HetAdditive,::Union{HetBoth,HetOutgoing})
+  sum_and_count_over_cols!(alloc,nel,weights)
+  sum_max = constraint.wsum_max
+  for (k,colsum) in iterate(alloc)
+    alloc[k] = colsum <= sum_max ? 0.0 : (sum_max - colsum )/ nel
+  end
+  return nothing
+end
+function _het_plasticity_fix_cols!(alloc::Vector{Float64},nel::Vector{Int64},
+    weights::SparseMatrixCSC,
+    constraint::HetStrictSum,::HetAdditive,::Union{HetBoth,HetOutgoing})
   sum_and_count_over_cols!(alloc,nel,weights)
   sum_max = constraint.wsum_max
   @. alloc = (sum_max - alloc )/ nel
   return nothing
 end
-function _het_plasticity_fix_cols!(alloc::Vector{Float64},nel::Vector{Int64},
-    weights::SparseMatrixCSC,
-    constraint::HeterosynapticConstraint,::HeterosynapticMethod,::HetIncoming)
+function _het_plasticity_fix_cols!(::Vector{Float64},::Vector{Int64},
+    ::SparseMatrixCSC,::HeterosynapticConstraint,::HeterosynapticMethod,::HetIncoming)
   return nothing  
 end
 
 function _het_plasticity_apply_fix!( 
     fixrows::Vector{Float64},fixcols::Vector{Float64},
-    weights::SparseMatrixCSC,constraint::HetStrictSum,
+    weights::SparseMatrixCSC,constraint::HeterosynapticConstraint,
     ::HetAdditive,::HetBoth)
   ncols = size(weights,2)
   rows = rowvals(weights)
@@ -402,6 +423,36 @@ function _het_plasticity_apply_fix!(
     end
   end
 end
+
+function _het_plasticity_apply_fix!(fixrows::Vector{Float64},::Vector{Float64},
+    weights::SparseMatrixCSC,constraint::HeterosynapticConstraint,
+    ::HetAdditive,::HetIncoming) 
+  ncols = size(weights,2)
+  rows = rowvals(weights)
+  weights_nonzeros = nonzeros(weights)
+  @inbounds for (k,row) in enumerate(rows)
+    fix_val = fixrows[row]
+    weights_nonzeros[k] = hardbounds(
+          weights_nonzeros[k]+fix_val,constraint)
+  end
+end
+
+function _het_plasticity_apply_fix!(::Vector{Float64},fixcols::Vector{Float64},
+    weights::SparseMatrixCSC,constraint::HeterosynapticConstraint,
+    ::HetAdditive,::HetOutgoing)
+  ncols = size(weights,2)
+  rows = rowvals(weights)
+  weights_nonzeros = nonzeros(weights)
+  @inbounds for col in 1:ncols
+    fixcol=fixcols[col]
+    rang = nzrange(weights,col)
+    for r in rang
+      weights_nonzeros[r] = hardbounds(
+          weights_nonzeros[r]+fixcol,constraint)
+    end
+  end
+end
+
 
 #=
 slower :-( , and bugged 
@@ -420,7 +471,6 @@ function _het_plasticity_apply_fix!(
           weights_nonzeros[i]+fix_val,constraint)
   end
 end
-=#
 
 
 
@@ -446,30 +496,32 @@ end
 
 
 abstract type HeterosynapticPlasticityMethod end
-struct HeterosynapticAdditive <: HeterosynapticPlasticityMethod
-  wmin::Float64
-  wmax::Float64
-end
-struct HeterosynapticMultiplicative <: HeterosynapticPlasticityMethod 
-  wmin::Float64
-  wmax::Float64
-end
+struct HeterosynapticAdditive <: HeterosynapticPlasticityMethod end
+struct HeterosynapticMultiplicative <: HeterosynapticPlasticityMethod end 
 
 abstract type HeterosynapticPlasticityTarget end
-struct HeterosynapticIncoming <: HeterosynapticPlasticityTarget 
-  sum_max::Float64
-end 
-struct HeterosynapticOutgoing <: HeterosynapticPlasticityTarget 
-  sum_max::Float64
-end 
+struct HeterosynapticIncoming <: HeterosynapticPlasticityTarget end
+struct HeterosynapticOutgoing <: HeterosynapticPlasticityTarget end
 
-struct PlasticityHeterosynapticEasy{HetMeth<:HeterosynapticPlasticityMethod,
+abstract type HeterosynapticPlasticityConstraint end
+struct HeterosynapticUpperlimit <: HeterosynapticPlasticityConstraint 
+  sum_max::Float64
+  wmin::Float64
+  wmax::Float64
+end
+struct HeterosynapticStrictSum <: HeterosynapticPlasticityConstraint 
+  sum_max::Float64
+  wmin::Float64
+  wmax::Float64
+end
+
+struct HeterosynapticPlasticity{HetMeth<:HeterosynapticPlasticityMethod,
     HetTarg<:HeterosynapticPlasticityTarget} <: PlasticityRule
   Δt_update::Float64
   method::HetMeth
   target::HetTarg
   _tcounter::Ref{Float64}
-  function PlasticityHeterosynapticEasy(Δt_update::Float64,
+  function HeterosynapticPlasticity(Δt_update::Float64,
       method::M,target::T) where {M<:HeterosynapticPlasticityMethod,T<:HeterosynapticPlasticityTarget}
     counter = Ref(0.0)
     new{M,T}(Δt_update,method,target,counter)
@@ -724,3 +776,4 @@ function plasticity_update!(::Real,dt::Real,
   end
   return nothing
 end
+=#

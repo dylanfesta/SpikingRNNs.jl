@@ -41,8 +41,8 @@ end
          plasticity_bounds=PlasticityBoundsNonnegative())
 
 constructor for "classic" pairwise STPD rule.
-The `Aminus` coefficient, when positive, causes a *reduction*
-in the weights. 
+The `Aminus` coefficient, when positive, causes an *increase*
+in the weights. So it should be set negative for classic Hebbian STDP
 """
 struct PairSTDP <: PlasticityRule
   Aplus::Float64
@@ -80,7 +80,7 @@ function plasticity_update!(::Real,dt::Real,
 		_posts_nz = nzrange(conn.weights,j_pre) # indexes of corresponding pre in nz space
 		@inbounds for _pnz in _posts_nz
       ipost = row_idxs[_pnz]
-      Δw = -plast.traceominus[ipost]*plast.Aminus
+      Δw = plast.traceominus[ipost]*plast.Aminus
       weightsnz[_pnz] = plast.bounds(weightsnz[_pnz],Δw)
     end
   end
@@ -172,7 +172,7 @@ function plasticity_update!(::Real,dt::Real,
     trace3_jpre = plast.trace3rminus[j_pre]
 		@inbounds for _pnz in _posts_nz
       i_post = row_idxs[_pnz]
-      Δw = -plast.trace2ominus[i_post]*(plast.A2minus+plast.A3minus*trace3_jpre)
+      Δw = plast.trace2ominus[i_post]*(plast.A2minus+plast.A3minus*trace3_jpre)
       weightsnz[_pnz] = plast.bounds(weightsnz[_pnz],Δw)
     end
   end
