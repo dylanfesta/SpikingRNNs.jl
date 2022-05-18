@@ -333,7 +333,7 @@ function sum_and_count_over_rows!(rowsum::Vector{R},nels::Vector{I},
   Mnz = nonzeros(M) # direct access to weights 
   fill!(rowsum,zero(R))
   fill!(nels,zero(I))
-  @inbounds for (i,r) in enumerate(rowvals(M))
+  for (i,r) in enumerate(rowvals(M))
     rowsum[r] += Mnz[i]
     nels[r] += 1
   end
@@ -343,7 +343,7 @@ function sum_and_count_over_cols!(colsum::Vector{R},nels::Vector{I},
     M::SparseMatrixCSC{R,I}) where {R,I}
   Mnz = nonzeros(M) # direct access to weights 
   ncols = size(M,2)
-  @inbounds for col in 1:ncols
+  for col in 1:ncols
     rang = nzrange(M,col)
     if isempty(rang)
       nels[col] = 0
@@ -411,7 +411,7 @@ function _het_plasticity_apply_fix!(
   ncols = size(weights,2)
   rows = rowvals(weights)
   weights_nonzeros = nonzeros(weights)
-  @inbounds for col in 1:ncols
+  for col in 1:ncols
     rang = nzrange(weights,col)
     fixcol=fixcols[col]
     for r in rang
@@ -426,10 +426,9 @@ end
 function _het_plasticity_apply_fix!(fixrows::Vector{Float64},::Vector{Float64},
     weights::SparseMatrixCSC,constraint::HeterosynapticConstraint,
     ::HetAdditive,::HetIncoming) 
-  ncols = size(weights,2)
   rows = rowvals(weights)
   weights_nonzeros = nonzeros(weights)
-  @inbounds for (k,row) in enumerate(rows)
+  for (k,row) in enumerate(rows)
     fix_val = fixrows[row]
     weights_nonzeros[k] = hardbounds(
           weights_nonzeros[k]+fix_val,constraint)
@@ -440,9 +439,8 @@ function _het_plasticity_apply_fix!(::Vector{Float64},fixcols::Vector{Float64},
     weights::SparseMatrixCSC,constraint::HeterosynapticConstraint,
     ::HetAdditive,::HetOutgoing)
   ncols = size(weights,2)
-  rows = rowvals(weights)
   weights_nonzeros = nonzeros(weights)
-  @inbounds for col in 1:ncols
+  for col in 1:ncols
     fixcol=fixcols[col]
     rang = nzrange(weights,col)
     for r in rang
