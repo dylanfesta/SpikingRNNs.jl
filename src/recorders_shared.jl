@@ -563,6 +563,8 @@ struct RecWeightsFull
   Δt::Float64 # record every Δt 
   t_last::Ref{Float64} # last recorded time
   k_ref::Ref{Int64}    # last recorded index
+  Tstart::Float64
+  Tend::Float64
   times::Vector{Float64}
   weights_now:: Vector{SparseMatrixCSC{Float64,Int64}}
   function RecWeightsFull(conn::Connection,
@@ -573,7 +575,7 @@ struct RecWeightsFull
     k_ref=Ref(0)
     times = fill(NaN,nrecs)
     weights_now = Vector{SparseMatrixCSC{Float64,Int64}}(undef,nrecs)
-    return new(conn.weights,isdone,everydt,t_last,k_ref,times,weights_now)
+    return new(conn.weights,isdone,everydt,t_last,k_ref,Tstart,Tend,times,weights_now)
   end
 end
 Base.length(rec::RecWeightsFull) = length(rec.times)
@@ -583,7 +585,7 @@ struct RecWeightsFullContent
   times::Vector{Float64}
   weights_now::Vector{SparseMatrixCSC{Float64,Int64}}
   function RecWeightsFullContent(r::RecWeightsFull)
-    idxs_keep = 1:r.k_ref
+    idxs_keep = 1:r.k_ref[]
     new(r.times[idxs_keep],r.weights_now[idxs_keep])
   end
 end
@@ -603,7 +605,7 @@ end
 
 function (rec::RecWeightsFull)(t::Float64,::Integer,::AbstractNetwork)
   # has recording ended?
-  rec.isdone && return nothing
+  rec.isdone[] && return nothing
   if t>=rec.Tend
     rec.isdone[]=true
     return nothing
