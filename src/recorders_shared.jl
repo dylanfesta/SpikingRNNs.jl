@@ -553,36 +553,27 @@ end
 
 """
   RecWeightsFull(conn::Connection,
-        everyk::Integer,dt::Float64,Tend::Float64; 
-        Tstart::Float64=0.0)
+    everydt::Float64,Tend::Float64;Tstart::Float64=0.0)
 
 Constructor, fields are self explanatory        
 """
 struct RecWeightsFull
   weights::SparseMatrixCSC{Float64,Int64}
   isdone::Ref{Bool}
-  krec::Int64 # record every k timesteps
-  nrecords::Int64 # max recorded steps
-  k_start::Int64 # starts to record only after this 
+  Δt::Float64 # record every Δt 
+  t_last::Ref{Float64} # last recorded time
+  k_ref::Ref{Int64}    # last recorded index
   times::Vector{Float64}
   weights_now:: Vector{SparseMatrixCSC{Float64,Int64}}
   function RecWeightsFull(conn::Connection,
-      everyk::Integer,dt::Float64,Tend::Float64; 
-      Tstart::Float64=0.0)
-    if iszero(n_plasticity_rules(conn))
-      @warn "The connection has no plasticity, there is no need of tracking it!"
-    end
-    k_start = floor(Int64,Tstart/dt)
-    nrecs = floor(Int64,(Tend-Tstart)/(everyk*dt))
+       everydt::Real,Tend::Float64;Tstart::Float64=0.0)
+    nrecs = ceil(Int64,(Tend-Tstart)/(everydt))+5
     isdone = Ref(false)
-    if nrecs < 1 
-      @warn "something wrong in the recorder... I assume this is a test ?"
-      nrecs=1
-      isdone = Ref(true)
-    end
+    t_last=Ref(-Inf)
+    k_ref=Ref(0)
     times = fill(NaN,nrecs)
     weights_now = Vector{SparseMatrixCSC{Float64,Int64}}(undef,nrecs)
-    return new(conn.weights,isdone,everyk,nrecs,k_start,times,weights_now)
+    return new(conn.weights,isdone,everydt,t_last,k_ref,times,weights_now)
   end
 end
 Base.length(rec::RecWeightsFull) = length(rec.times)
@@ -592,8 +583,8 @@ struct RecWeightsFullContent
   times::Vector{Float64}
   weights_now::Vector{SparseMatrixCSC{Float64,Int64}}
   function RecWeightsFullContent(r::RecWeightsFull)
-    idx_keep = findall(isfinite,r.times) # unoptimized
-    new(r.times[idx_keep],r.weights_now[idx_keep])
+    idxs_keep = 1:r.k_ref
+    new(r.times[idxs_keep],r.weights_now[idxs_keep])
   end
 end
 function get_content(rec::RecWeightsFull)
@@ -605,22 +596,28 @@ function reset!(rec::RecWeightsFull)
   fill!(rec.times,NaN)
   fill!(rec.weights_now,sparse(zeros(1,1)))
   rec.isdone[]=false
+  rec.t_last[]=-Inf  # if -inf, first recording at 0, if 0, first recording at delta t 
+  rec.k_ref[]=0
   return nothing
 end
 
-function (rec::RecWeightsFull)(t::Float64,k::Integer,::AbstractNetwork)
-  # I assume k starts from 1, which corresponds to t=0
-  kless,_rem=divrem((k-rec.k_start-1),rec.krec)
-  kless += 1 # vector index must start from 1
-  if (_rem != 0) || kless<=0 || rec.isdone[]
-    return nothing
-  end
-  if kless > rec.nrecords 
+function (rec::RecWeightsFull)(t::Float64,::Integer,::AbstractNetwork)
+  # has recording ended?
+  rec.isdone && return nothing
+  if t>=rec.Tend
     rec.isdone[]=true
     return nothing
   end
-  rec.weights_now[kless] = copy(rec.weights)
-  rec.times[kless] = t
+  # should we record?
+  if ((t - rec.t_last[]) < rec.Δt) || (t < rec.Tstart)
+    return nothing
+  end
+  # we must record !
+  k = rec.k_ref[] + 1
+  rec.t_last[] = t
+  rec.k_ref[] = k
+  rec.times[k] = t
+  rec.weights_now[k] = copy(rec.weights)
   return nothing
 end
 
