@@ -592,7 +592,8 @@ struct RecWeightsFullContent
   times::Vector{Float64}
   weights_now::Vector{SparseMatrixCSC{Float64,Int64}}
   function RecWeightsFullContent(r::RecWeightsFull)
-    new(r.times,r.weights_now)
+    idx_keep = findall(isfinite,r.times) # unoptimized
+    new(r.times[idx_keep],r.weights_now[idx_keep])
   end
 end
 function get_content(rec::RecWeightsFull)
