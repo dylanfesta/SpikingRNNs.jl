@@ -1,5 +1,4 @@
 
-
 abstract type PSSpiking <: PopulationState end
 abstract type SomaticKernel end
 # TODO already defined elsewhere
