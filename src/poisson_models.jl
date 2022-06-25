@@ -1,15 +1,10 @@
-abstract type PoissonRole end
-struct PoissonExcitatory <: PoissonNeuronRole end
-struct PoissonInhibitory <: PoissonNeuronRole end
 
 abstract type PoissonIO end
 struct PoissonIOReLU <: PoissonIO end
-
-abstract type PoissonGeneralInput end
-
-struct PoissonFixedInput <: PoissonGeneralInput
-  input::Vector{Float64}
+struct PoissonIOMaxed <: PoissonIO 
+  maxrate::Float64
 end
+
 
 @inline function (pio::PoissonIOReLU)(rnow::Float64)
   if rnow > 0.0
@@ -18,106 +13,166 @@ end
     return 0.0
   end
 end
+@inline function (pio::PoissonIOMaxed)(rnow::Float64)
+  if rnow < 0.0
+    return 0.0
+  elseif rnow > pio.maxrate
+    return maxrate
+  else
+    return rnow
+  end
+end
 
-struct PSPoisson{PR<:PoissonRole,PIO<:PoissonIO} <: PSSpiking
-  role::PR
-  io_function::PIO
+struct PSPoissonNeuron{PIO<:PoissonIO} <: PSSpiking
+  τ::Float64
   n::Int64
-  traces::NTuple{N,Trace} where N
-  input::Vector{Float64}
+  io_function::PIO
   state_now::Vector{Float64}
+  input::Vector{Float64}
 	last_fired::Vector{Float64}
 	isfiring::BitArray{1}
   random_alloc::Vector{Float64}
-  function PSPoisson(n::Integer,role::PR,traces;(io_function::PIO)=PoissonIOReLU()) where {PR,PIO}
+  function PSPoissonNeuron(τ::Float64,n::Integer;(io_function::PIO)=PoissonIOReLU()) where {PR,PIO}
     input = fill(0.0,n)
     state_now = fill(0.0,n)
     last_fired = fill(-Inf,n)
     isfiring = fill(false,n)
     random_alloc = fill(NaN,n)
-    return new{PR,PIO}(role,io_function,n,traces,input,state_now,last_fired,isfiring,random_alloc)
+    return new{PIO}(τ,n,io_function,input,state_now,last_fired,isfiring,random_alloc)
   end
 end
-function reset!(ps::PSPoisson)
+function reset!(ps::PSPoissonNeuron)
   fill!(ps.input,0.0)
   fill!(ps.state_now,0.0)
   fill!(ps.last_fired,-Inf)
   fill!(ps.isfiring,false)
-  reset!.(ps.traces)
   return nothing
 end
 
-@inline function reset_input!(ps::PSPoisson)
+@inline function reset_input!(ps::PSPoissonNeuron)
   fill!(ps.input,0.0)
   fill!(ps.state_now,0.0)
   return nothing
 end
 
-# tau has one element for exp kernel, but two elements for sum of exp shape...
-function population_state_and_traces(n::Integer,role::PoissonRole,τs::NTuple{N,Float64};
-    (io_function::PoissonIO)=PoissonIOReLU()) where N
-  traces = Trace.(τs,n)
-  return PSPoisson(n,role,traces;io_function=io_function),traces
-end
-
-
-function local_update!(::Float64,dt::Float64,ps::PSPoisson)
+function local_update!(::Float64,dt::Float64,ps::PSPoissonNeuron)
   # refresh randomly generated values
   rand!(ps.random_alloc)
   @inbounds @simd for i in 1:ps.n
     # rate is total input filtered by nonlinearity
-    state_now = ps.io_function(ps.input[i])
+    state_now = ps.io_function((ps.state_now[i]-ps.input[i])/ps.τ)
     # is firing ?
-    if ps.random_alloc[i] > (state_now * dt)
-    # then update trace!
-      for tra in ps.traces
-        tra[i] += 1.0
-      end
-      ps.isfiring[i] = true
-    else
-      ps.isfiring[i] = false
-    end
-    ps.state_now[i] = state_now # this is only for data storage and visualizaton purpose
+    ps.isfiring[i] = ps.random_alloc[i] > (state_now * dt)
+    # store instantaneopus rate
+    ps.state_now[i] = state_now
   end
-  # move traces one step forward
-  trace_decay!.(ps.traces,dt)
   # all done !
   return nothing 
 end
 
 
-# The kernel is a connection property... but traces must be stored stored in the population state!
-# (so that they can be updated at each dt)
+abstract type PoissonConnectionSign end
+struct PoissonExcitatory <: PoissonConnectionSign end
+struct PoissonInhibitory <: PoissonConnectionSign end
 
-struct ConnectionPoissonExpKernel{N,PL<:NTuple{N,PlasticityRule}} <: BaseConnection
-  alloc_input::Vector{Float64}
+# The kernel is a connection property
+# input traces are stored in there, too!
+abstract type AbstractConnectionPoisson <: AbstractBaseConnection end
+
+struct ConnectionPoissonExpKernel{N,PL<:NTuple{N,PlasticityRule},S<:PoissonConnectionSign} <: AbstractConnectionPoisson
+  sign::S
+  post_trace::Trace
   weights::SparseMatrixCSC{Float64,Int64}
   plasticities::PL
 end
-
-# these are actually just matrix-vector products!
-function forward_signal!(::Float64,::Float64,pspost::PSPoisson,
-    conn::ConnectionPoissonExpKernel,pspre::PSPoisson{PoissonExcitatory,T where T})
-  mul!(conn.alloc_input,conn.weights,pspre.traces[1].val)
-  pspost.input .+= conn.alloc_input
-  return nothing
-end
-function forward_signal!(::Float64,::Float64,pspost::PSPoisson,
-    conn::ConnectionPoissonExpKernel,pspre::PSPoisson{PoissonInhibitory,T where T})
-  mul!(conn.alloc_input,conn.weights,pspre.traces[1].val)
-  pspost.input .-= conn.alloc_input
-  return nothing
+function ConnectionPoissonExpKernel(sign::PoissonConnectionSign,τ::Float64,
+    weights::Union{Matrix{Float64},SparseMatrixCSC{Float64,Int64}};
+    plasticities=(NoPlasticity(),))
+  if weights isa Matrix 
+    weights = sparse(weights)
+  end
+  npost = size(weights,1)
+  post_trace = Trace(τ,npost)
+  return ConnectionPoissonExpKernel(sign,post_trace,weights,plasticities)
 end
 
-# useful for more general cases ?
-function forward_signal!(::Float64,::Float64,pspost::PSPoisson,
-    conn::BaseConnection,pspre::PSPoissonGeneralInput)
-  mul!(conn.alloc_input,conn.weights,pspre.trace)
-  pspost.input .+= conn.alloc_input
+@inline function kernel_decay!(co::ConnectionPoissonExpKernel,dt::Float64)
+  trace_decay!(co.post_trace,dt)
   return nothing
 end
-function forward_signal!(::Float64,::Float64,pspost::PSPoisson,
-    conn::FakeConnection,pspre::PSPoissonGeneralInput)
-  pspost.input .+= pspre.input
+@inline function poisson_kernel_trace_update!(co::ConnectionPoissonExpKernel,wij::Float64,
+    idx_post::Integer)
+  co.trace[idx_post] += wij  
+  return nothing
+end
+
+# difference between E and I goes here!
+@inline function add_signal_to_input!(input::Vector{Float64},
+    conn::ConnectionPoissonExpKernel{A,B,PoissonExcitatory}) where {A,B}
+  input .+= conn.post_trace.val
+end
+@inline function add_signal_to_input!(input::Vector{Float64},
+    conn::ConnectionPoissonExpKernel{A,B,PoissonInhibitory}) where {A,B}
+  input .-= conn.post_trace.val
+end
+
+
+# Forward signals that arrive in the form of spikes 
+function forward_signal!(::Real,dt::Real,
+      pspost::PSPoissonNeuron,conn::AbstractConnectionPoisson,pspre::PSSpiking)
+	post_idxs = rowvals(conn.weights) # postsynaptic neurons
+	weightsnz = nonzeros(conn.weights) # direct access to weights 
+  # add signal to post trace
+	for _pre in findall(pspre.isfiring)
+		_posts_nz = nzrange(conn.weights,_pre) # indexes of corresponding pre in nz space
+		@inbounds for _pnz in _posts_nz
+			idx_post = post_idxs[_pnz]
+      poisson_kernel_trace_update!(conn,weightsnz[_pnz],idx_post)
+		end
+	end
+  # add ALL traces to input
+  add_signal_to_input!(pspost.input,conn)
+  # finally, all postsynaptic conductances decay in time
+  kernel_decay!(conn,dt)
+  # all done!
+  return nothing
+end
+
+
+# deals with inputs that are just currents
+struct PoissonInputCurrentConstant{V<:Union{Float64,Vector{Float64}}} <: PopulationState
+  current::V
+end
+struct PoissonInputCurrentFunVector <: PopulationState
+  f::Function # f(::Float64) -> Array{Float64}
+end
+struct PoissonInputCurrentNormal <: PopulationState
+  μ::Float64
+  σ::Float64
+  rand_alloc::Vector{Float64}
+end
+
+@inline function forward_signal!(::Real,::Real,
+        pspost::PSPoissonNeuron,conn::FakeConnection,
+        pspre::PoissonInputCurrentConstant)
+  pspost.input .+= pspre.current
+  return nothing
+end
+
+@inline function forward_signal!(t_now::Real,::Real,
+        pspost::PSPoissonNeuron,conn::FakeConnection,
+        pspre::PoissonInputCurrentFunVector)
+  current::Vector{Float64} = pspre.f(t_now)
+  pspost.input .+= current
+  return nothing
+end
+function forward_signal!(::Real,dt::Real,
+      pspost::PSPoissonNeuron,conn::FakeConnection,
+      pspre::PoissonInputCurrentNormal)
+  # generate random values    
+  randn!(pspre.rand_alloc)
+  # regularize so that std is σ for isolated neuron
+  σstar = sqrt(2*pspost.τ/dt)*pspre.σ
+  @. pspost.input += pspre.μ+σstar*pspre.rand_alloc
   return nothing
 end

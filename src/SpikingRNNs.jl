@@ -104,6 +104,7 @@ struct FakeConnection{N,PL<:NTuple{N,PlasticityRule}} <: Connection
   end
 end
 
+abstract type AbstractBaseConnection <: Connection end
 struct BaseConnection{N,PL<:NTuple{N,PlasticityRule}} <: Connection
   weights::SparseMatrixCSC{Float64,Int64}
   plasticities::PL
@@ -310,6 +311,7 @@ end
 include("rate_models.jl")
 include("if_models.jl")
 include("if_inputs.jl")
+include("poisson_models.jl")
 
 include("firingneurons_shared.jl")
 include("firingneurons_plasticity_shared.jl")
