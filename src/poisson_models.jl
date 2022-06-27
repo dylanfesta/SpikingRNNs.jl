@@ -51,7 +51,6 @@ end
 
 @inline function reset_input!(ps::PSPoissonNeuron)
   fill!(ps.input,0.0)
-  fill!(ps.state_now,0.0)
   return nothing
 end
 
@@ -59,17 +58,19 @@ function local_update!(::Float64,dt::Float64,ps::PSPoissonNeuron)
   # refresh randomly generated values
   rand!(ps.random_alloc)
   @inbounds @simd for i in 1:ps.n
+    # euler step here...
     # rate is total input filtered by nonlinearity
-    state_now = ps.io_function((ps.state_now[i]-ps.input[i])/ps.τ)
+    state_now = ps.state_now[i]
+    state_now += dt * (-ps.state_now[i]+ps.input[i]) / ps.τ
+    rate_now = ps.io_function(state_now)
     # is firing ?
-    ps.isfiring[i] = ps.random_alloc[i] > (state_now * dt)
+    ps.isfiring[i] = ps.random_alloc[i] < ( rate_now * dt)
     # store instantaneopus rate
     ps.state_now[i] = state_now
   end
   # all done !
   return nothing 
 end
-
 
 abstract type PoissonConnectionSign end
 struct PoissonExcitatory <: PoissonConnectionSign end
@@ -102,7 +103,7 @@ end
 end
 @inline function poisson_kernel_trace_update!(co::ConnectionPoissonExpKernel,wij::Float64,
     idx_post::Integer)
-  co.trace[idx_post] += wij  
+  co.post_trace[idx_post] += wij/co.post_trace.τ  
   return nothing
 end
 

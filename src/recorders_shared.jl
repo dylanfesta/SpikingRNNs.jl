@@ -35,6 +35,11 @@ function reset!(rec::RecStateNow)
   return nothing
 end
 
+function get_content(rs::RecStateNow)
+  return rs
+end
+
+
 function (rec::RecStateNow)(t::Float64,k::Integer,::AbstractNetwork)
   # I assume k starts from 1, which corresponds to t=0
   kless,_rem=divrem((k-1-rec.k_start),rec.krec)

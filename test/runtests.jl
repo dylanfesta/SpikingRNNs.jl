@@ -16,6 +16,15 @@ function sparse_thingies(w::SparseMatrixCSC)
   return nonzeros(w),rowvals(w),SparseArrays.getcolptr(w)
 end
 
+
+function wstick(wee::M,wie::M,wei::M,wii::M) where {R<:Real,M<:AbstractMatrix{R}}
+  return Matrix(hcat(vcat(wee,wie), (-1).*abs.(vcat(wei,wii) )))
+end
+
+function rates_analytic(W::Matrix{R},h::Vector{R}) where R
+  return (I-W)\h
+end
+
 ##
 
 @testset "Connectivity matrices" begin
@@ -377,6 +386,133 @@ end
   end
   rates_input2 = mean(rates_e)
   @test isapprox(2*rates_input1,rates_input2;rtol=0.2)
+end
+
+@testset "Poisson network" begin
+
+  N = 100
+  dt = 0.1E-3
+  τ = 50E-3
+  h_in = 123.45
+
+  # population
+  ps =  S.PSPoissonNeuron(τ,N)
+  # input
+  ps_in = S.PoissonInputCurrentConstant(fill(h_in,N))
+  # non-existing recurring connection
+  conn_ee = S.ConnectionPoissonExpKernel(S.PoissonExcitatory(),-1E6,fill(0.0,N,N))
+
+  # population
+  pop = S.Population(ps,(conn_ee,ps),(S.FakeConnection(),ps_in))
+
+  # network
+  ntw = S.RecurrentNetwork(dt,pop)
+
+  Ttot = 30.0
+  # record spiketimes and internal potential
+  rec_spikes_e = S.RecSpikes(ps,200.0,Ttot)
+  rec_state_e  = S.RecStateNow(ps,1,dt,Ttot;idx_save=[1,2])
+
+  ## Run
+
+  times = (0:ntw.dt:Ttot)
+  nt = length(times)
+  # clean up
+  S.reset!.([ps,rec_spikes_e])
+  # initial conditions
+  ps.state_now .= 30.0
+
+  for (k,t) in enumerate(times)
+    rec_spikes_e(t,k,ntw)
+    rec_state_e(t,k,ntw)
+    S.dynamics_step!(t,ntw)
+  end
+
+  spikes_c = S.get_content(rec_spikes_e)
+  states_c = S.get_content(rec_state_e)
+
+  # myrast = S.draw_spike_raster(S.get_spiketrains(spikes_c)[1],0.001,0.5)
+  # save("/tmp/rast.png",myrast)
+
+  rats = S.get_mean_rates(spikes_c)
+
+  @test all(isapprox.(values(rats),h_in;rtol=0.2))
+
+
+  # test 2, rate for 500 neurons should be the similar to 2D system 
+  ne = 350
+  ni = 150
+  dt = 0.1E-3
+  τe,τi = 0.5,0.2
+  he,hi = 70.,5.
+
+  sparse_ee = 0.3
+  sparse_ie = 0.3
+  sparse_ei = 0.4
+  sparse_ii = 0.4
+
+  τker_e = 0.8
+  τker_i = 0.4
+  wee_scal,wie_scal,wei_scal,wii_scal=(1.5,2.0,1.3,.8)
+
+  w_ee = S.sparse_constant_wmat(ne,ne,sparse_ee,1.0;rowsum=wee_scal) 
+  w_ie = S.sparse_constant_wmat(ni,ne,sparse_ie,1.0;rowsum=wie_scal,no_autapses=false) 
+  w_ei = S.sparse_constant_wmat(ne,ni,sparse_ei,1.0;rowsum=wei_scal,no_autapses=false) 
+  w_ii = S.sparse_constant_wmat(ni,ni,sparse_ii,1.0;rowsum=wii_scal) 
+
+  Wdense = wstick(w_ee,w_ie,w_ei,w_ii)
+  h_full = vcat(fill(he,ne),fill(hi,ni))
+  rats_an = rates_analytic(Wdense,h_full)
+  rats_an_e = rats_an[1]
+  rats_an_i = rats_an[end]
+
+  ps_e =  S.PSPoissonNeuron(τe,ne)
+  ps_i =  S.PSPoissonNeuron(τi,ni)
+  conn_ee = S.ConnectionPoissonExpKernel(S.PoissonExcitatory(),τker_e,w_ee)
+  conn_ie = S.ConnectionPoissonExpKernel(S.PoissonExcitatory(),τker_e,w_ie)
+  conn_ei = S.ConnectionPoissonExpKernel(S.PoissonInhibitory(),τker_i,w_ei)
+  conn_ii = S.ConnectionPoissonExpKernel(S.PoissonInhibitory(),τker_i,w_ii)
+  # inputs
+  in_e = S.PoissonInputCurrentConstant(fill(he,ne))
+  in_i = S.PoissonInputCurrentConstant(fill(hi,ni))
+  pop_e = S.Population(ps_e,
+    (conn_ee,ps_e),(conn_ei,ps_i),(S.FakeConnection(),in_e))
+  pop_i = S.Population(ps_i,
+    (conn_ie,ps_e),(conn_ii,ps_i),(S.FakeConnection(),in_i))
+  ntw = S.RecurrentNetwork(dt,pop_e,pop_i)
+  Ttot =40.0
+  # record spiketimes and internal potential
+  rec_spikes_e = S.RecSpikes(ps_e,200.0,Ttot)
+  rec_spikes_i = S.RecSpikes(ps_i,200.0,Ttot)
+
+  rec_state_e  = S.RecStateNow(ps_e,10,dt,Ttot;idx_save=[1,2,3])
+  rec_state_i  = S.RecStateNow(ps_i,10,dt,Ttot;idx_save=[1,2,3])
+
+  times = (0:ntw.dt:Ttot)
+  nt = length(times)
+  # clean up
+  S.reset!.([ps_e,ps_i,rec_spikes_e,rec_spikes_i,rec_state_e,rec_state_i])
+  # initial conditions
+  ps_e.state_now .= 50.0
+  ps_i.state_now .= 50.0
+
+  for (k,t) in enumerate(times)
+    rec_spikes_e(t,k,ntw)
+    rec_spikes_i(t,k,ntw)
+    rec_state_e(t,k,ntw)
+    rec_state_i(t,k,ntw)
+    S.dynamics_step!(t,ntw)
+  end
+
+  spikec_e = S.get_content(rec_spikes_e)
+  spikec_i = S.get_content(rec_spikes_i)
+
+  rats_e = collect(values(S.get_mean_rates(spikec_e;Tstart=10.0)))
+  rats_i =collect(values( S.get_mean_rates(spikec_i;Tstart=10.0)))
+  @test all(isapprox.(rats_e,rats_an_e;rtol=0.1))
+  @test all(isapprox.(rats_i,rats_an_i;rtol=0.1))
+
+
 end
 
 #=
