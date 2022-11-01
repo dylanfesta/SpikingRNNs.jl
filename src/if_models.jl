@@ -55,12 +55,12 @@ function reset!(ps::PSIFNeuron)
 end
 
 
-# neuron with normal firing kernel
+# neuron with normal firing kernel (just decay term, no exp)
 """
     PSIFNeuron(n::Integer,τ::R,cap::R,
         v_threshold::R,v_reset::R,v_leak::R,t_refractory::R) where R
 
-Generates a population of leaky integrate and fire neurons.
+Generates a population of standard leaky integrate and fire neurons.
 
 # Arguments
   + `n` : number of neurons
@@ -84,8 +84,8 @@ function PSIFNeuron(n::Integer,τ::R,cap::R,
 end
 
 
+# computes the update to internal voltage, given the total input
 function local_update!(t_now::Float64,dt::Float64,ps::PSIFNeuron)
-	# computes the update to internal voltage, given the total input
   # dv =  somatic_function(v) dt / τ + I dt / Cap
   dttau =  dt / ps.τ
   dtCap = dt / ps.capacitance
@@ -105,7 +105,9 @@ function forward_signal!(::Real,dt::Real,
       pspost::PSIFNeuron,conn::AbstractConnectionIF,pspre::PSSpiking)
 	post_idxs = rowvals(conn.weights) # postsynaptic neurons
 	weightsnz = nonzeros(conn.weights) # direct access to weights 
-	for _pre in findall(pspre.isfiring)
+  # this is findall(pspre.isfiring), unless there is a delay in the transmission!
+  pre_receiving = find_pre_receiving(conn,pspre.isfiring)
+	for _pre in pre_receiving
 		_posts_nz = nzrange(conn.weights,_pre) # indexes of corresponding pre in nz space
 		@inbounds for _pnz in _posts_nz
 			post_idx = post_idxs[_pnz]
@@ -117,10 +119,19 @@ function forward_signal!(::Real,dt::Real,
   # postsynaptic voltage
   add_signal_to_nonrefractory!(pspost.input,conn,pspost.isrefractory,pspost.state_now)
   # finally, all postsynaptic conductances decay in time
+  # also, take care of other adaptation processes, if any
+  forward_signal_end!(conn,dt)
+  return nothing
+end
+
+find_pre_receiving(::AbstractConnectionIF,pre_isfiring::BitArray{1}) = findall(pre_isfiring)
+
+@inline function forward_signal_end!(conn::AbstractConnectionIF,dt::Real)
   kernel_decay!(conn.synaptic_kernel,dt)
   return nothing
 end
 
+# updates isrefractory, isfiring, last_fired depending on state_now
 function process_spikes!(t_now::Real,ps::PSIFNeuron{SK,F}) where {SK,F<:IFFFixedThreshold}
   reset_spikes!(ps.isfiring)
   fp=ps.firing_process
@@ -254,7 +265,6 @@ end
   syk.trace_minus[idx] += w
   return nothing
 end
-
 
 @inline function add_signal_to_nonrefractory!(inputs::Vector{Float64},
       conn::AbstractConnectionIF{SyKCurrentExponential},isrefractory::BitArray{1},::Vector)

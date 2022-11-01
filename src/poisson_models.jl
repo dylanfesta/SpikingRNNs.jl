@@ -5,7 +5,6 @@ struct PoissonIOMaxed <: PoissonIO
   maxrate::Float64
 end
 
-
 @inline function (pio::PoissonIOReLU)(rnow::Float64)
   if rnow > 0.0
     return rnow
@@ -23,6 +22,16 @@ end
   end
 end
 
+@inline function apply_io!(rout::Vector{R},rnow::Vector{R},::PoissonIOReLU) where R
+  @inbounds @simd for i in eachindex(rout)
+    rn = rnow[i]
+    rout[i] = rn < zero(R) ? zero(R) : rn
+  end
+  return nothing
+end
+
+
+
 struct PSPoissonNeuron{PIO<:PoissonIO} <: PSSpiking
   τ::Float64
   n::Int64
@@ -32,13 +41,15 @@ struct PSPoissonNeuron{PIO<:PoissonIO} <: PSSpiking
 	last_fired::Vector{Float64}
 	isfiring::BitArray{1}
   random_alloc::Vector{Float64}
-  function PSPoissonNeuron(τ::Float64,n::Integer;(io_function::PIO)=PoissonIOReLU()) where {PR,PIO}
+  rate_now::Vector{Float64}
+  function PSPoissonNeuron(τ::Float64,n::Integer;(io_function::PIO)=PoissonIOReLU()) where PIO
     input = fill(0.0,n)
     state_now = fill(0.0,n)
     last_fired = fill(-Inf,n)
     isfiring = fill(false,n)
     random_alloc = fill(NaN,n)
-    return new{PIO}(τ,n,io_function,input,state_now,last_fired,isfiring,random_alloc)
+    rate_now = fill(NaN,n)
+    return new{PIO}(τ,n,io_function,input,state_now,last_fired,isfiring,random_alloc,rate_now)
   end
 end
 function reset!(ps::PSPoissonNeuron)
@@ -55,22 +66,37 @@ end
 end
 
 function local_update!(::Float64,dt::Float64,ps::PSPoissonNeuron)
+  # one step forward in time
+  @. ps.state_now += (dt/ps.τ) *(-ps.state_now+ps.input)
+  # compute firing probability
+  apply_io!(ps.rate_now,ps.state_now,ps.io_function)
+  ps.rate_now .*= dt
   # refresh randomly generated values
   rand!(ps.random_alloc)
-  @inbounds @simd for i in 1:ps.n
-    # euler step here...
-    # rate is total input filtered by nonlinearity
-    state_now = ps.state_now[i]
-    state_now += dt * (-ps.state_now[i]+ps.input[i]) / ps.τ
-    rate_now = ps.io_function(state_now)
-    # is firing ?
-    ps.isfiring[i] = ps.random_alloc[i] < ( rate_now * dt)
-    # store instantaneopus rate
-    ps.state_now[i] = state_now
-  end
+  @. ps.isfiring = ps.random_alloc < ps.rate_now 
   # all done !
   return nothing 
 end
+
+# function local_update_old!(::Float64,dt::Float64,ps::PSPoissonNeuron)
+#   # refresh randomly generated values
+#   rand!(ps.random_alloc)
+#   @inbounds @simd for i in 1:ps.n
+#     # euler step here...
+#     # rate is total input filtered by nonlinearity
+#     state_now = ps.state_now[i]
+#     state_now += dt * (-state_now+ps.input[i]) / ps.τ
+#     rate_now = ps.io_function(state_now)
+#     # is firing ?
+#     ps.isfiring[i] = ps.random_alloc[i] < ( rate_now * dt)
+#     # store instantaneopus rate
+#     ps.state_now[i] = state_now
+#   end
+#   #all done !
+#   return nothing 
+# end
+
+
 
 abstract type PoissonConnectionSign end
 struct PoissonExcitatory <: PoissonConnectionSign end
@@ -111,10 +137,12 @@ end
 @inline function add_signal_to_input!(input::Vector{Float64},
     conn::ConnectionPoissonExpKernel{A,B,PoissonExcitatory}) where {A,B}
   input .+= conn.post_trace.val
+  return nothing
 end
 @inline function add_signal_to_input!(input::Vector{Float64},
     conn::ConnectionPoissonExpKernel{A,B,PoissonInhibitory}) where {A,B}
   input .-= conn.post_trace.val
+  return nothing
 end
 
 

@@ -133,3 +133,20 @@ save("/tmp/rast.png",myrast)
 
 scatter(rec_state_e.times,rec_state_e.state_now[3,:])
 scatter!(rec_state_i.times,rec_state_i.state_now[3,:])
+
+## check code
+
+ps_e =  S.PSPoissonNeuron(τe,10_000)
+ps_e =  S.PSPoissonNeuron(τe,10_000)
+
+##
+using BenchmarkTools
+
+@benchmark S.local_update!(0.0,$dt,ps__)  setup=(N=100_000; ps__= S.PSPoissonNeuron(τe,N); ps__.input .= rand(N)*5.0  )
+println("\n\n")
+@benchmark S.local_update_new!(0.0,$dt,ps__)  setup=(N=100_000; ps__= S.PSPoissonNeuron(τe,N); ps__.input .= rand(N)*5.0  )
+
+##
+
+@code_warntype S.local_update!(0.0,dt,ps_e)
+@code_warntype S.local_update_new!(0.0,dt,ps_e)
