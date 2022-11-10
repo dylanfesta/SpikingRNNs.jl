@@ -30,8 +30,6 @@ end
   return nothing
 end
 
-
-
 struct PSPoissonNeuron{PIO<:PoissonIO} <: PSSpiking
   τ::Float64
   n::Int64
@@ -78,6 +76,7 @@ function local_update!(::Float64,dt::Float64,ps::PSPoissonNeuron)
   return nothing 
 end
 
+# non-vectorized version 
 # function local_update_old!(::Float64,dt::Float64,ps::PSPoissonNeuron)
 #   # refresh randomly generated values
 #   rand!(ps.random_alloc)
