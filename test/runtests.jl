@@ -514,6 +514,71 @@ end
 
 end
 
+# function for testing STDP
+
+function post_pre_spiketrains(rate::R,Δt_ro::R,Ttot::R;
+    tstart::R = 0.05) where R
+  post = collect(range(tstart,Ttot; step=inv(rate)))
+  pre = post .- Δt_ro
+  return [pre,post] 
+end
+
+
+function post_pre_network(rate::Real,nreps::Integer,Δt_ro::Real,connection::S.Connection;
+    dt::Float64=0.5E-3)
+  Ttot = nreps/rate
+  trains = post_pre_spiketrains(rate,Δt_ro,Ttot) 
+  ps1 = S.PSFixedSpiketrain(trains[1:1])
+  ps2 = S.PSFixedSpiketrain(trains[2:2])
+  pop1 = S.UnconnectedPopulation(ps1)
+  pop2 = S.Population(ps2,(connection,ps1))
+  myntw = S.RecurrentNetwork(dt,pop1,pop2);
+  return ps1,ps2,myntw
+end
+
+function test_stpd_rule(Δt::R,rate::R,
+    nreps::Integer,connection::S.ConnectionPlasticityTest;wstart=100.0) where R
+  fill!(connection.weights,wstart)
+  myntw = post_pre_network(rate,nreps,Δt,connection)[3]
+  S.reset!(connection)
+  Ttot = (nreps+2)/rate
+  times = (0:myntw.dt:Ttot)
+  for t in times 
+    S.dynamics_step!(t,myntw)
+  end
+  Δw = (connection.weights[1,1] - wstart)/nreps
+  return Δw
+end
+
+function expected_pairwise_stdp(Δt::R,τplus::R,τminus::R,Aplus::R,Aminus::R) where R
+  return Δt > 0 ? Aplus*exp(-Δt/τplus) : Aminus*exp(Δt/τminus)
+end
+
+
+@testset "pairwise STPD" begin
+  
+  Δttest = rand(Uniform(-0.1,0.1),20)
+  dt = 0.5E-3
+  myτplus = 10E-3
+  myτminus = 45E-3
+  myAplus = 1.0
+  myAminus = -0.5
+  myplasticity = S.PairSTDP(myτplus,myτminus,myAplus,myAminus,1,1)
+  Δtplast = 5E-3
+  myplasticityF = S.PairSTDPFast(Δtplast,myτplus,myτminus,myAplus,myAminus,1,1)
+  my_connection = S.ConnectionPlasticityTest(onesparsemat(100.0),myplasticity)
+  my_connectionF = S.ConnectionPlasticityTest(onesparsemat(100.0),myplasticityF)
+  myrate = 0.1
+  nreps = 10
+  Δws_num = map( Δt -> test_stpd_rule(Δt,myrate,nreps,my_connection), Δttest)
+  Δws_numF = map( Δt -> test_stpd_rule(Δt,myrate,nreps,my_connectionF), Δttest)
+  Δws_an = map( Δt -> expected_pairwise_stdp(Δt,myτplus,myτminus,myAplus,myAminus), Δttest)
+
+  @test all(isapprox.(Δws_num,Δws_an;atol=0.1))
+  @test all(isapprox.(Δws_numF,Δws_an;atol=0.1))
+  
+end
+
 #=
 
 @testset "Homeostatic plasticity, easy implementation" begin

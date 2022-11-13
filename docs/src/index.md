@@ -14,6 +14,7 @@ CurrentModule = SpikingRNNs
 + [Leaky-integrate and fire, single neurons](./if_2neurons.md) -- Voltage traces, refractoriness, etc.
 + [Leaky-integrate and fire, sinusoidal input](./if_modulated_input.md) -- Voltage traces, refractoriness, etc.
 + [Leaky-integrate and fire, voltage density](./if_stationary_voltage_density.md) -- Current based IF, voltage distribution in a single neuron, for either stationary input, or noisy input
++ [Show curve for spiking time dependent plasticity (STDP)](./plasticity_stdp_curve.md)
 + [Triplet rule for two poisson neurons](./plasticity_triplet_2poisson.md)
 
 ## Index and documented functions

@@ -293,10 +293,10 @@ struct PairSTDPFast <: PlasticityRule
   bounds::PlasticityBounds
   t_last::Ref{Float64} # last recorded time
   Walloc::Matrix{Float64}
-  function PairSTDPFast(τplus,τminus,Aplus,Aminus,n_post,n_pre;
-       plasticity_bounds=PlasticityBoundsNonnegative())
+  function PairSTDPFast(Δt::R,τplus::R,τminus::R,Aplus::R,Aminus::R,n_post::I,n_pre::I;
+       plasticity_bounds=PlasticityBoundsNonnegative()) where {R<:Real,I<:Integer}
     t_last = 0.0
-    new(Aplus,Aminus,
+    new(Δt,Aplus,Aminus,
       Trace(τplus,n_pre),
       Trace(τminus,n_post),
       plasticity_bounds, t_last,zeros(n_post,n_pre))
@@ -304,8 +304,8 @@ struct PairSTDPFast <: PlasticityRule
 end
 
 function reset!(pl::PairSTDPFast)
-  reset!(pl.traceplus)
-  reset!(pl.traceminus)
+  reset!(pl.tracerplus)
+  reset!(pl.traceominus)
   return nothing
 end
 
@@ -329,7 +329,7 @@ function plasticity_update!(t::Real,dt::Real,
   # postsynaptic spike: go along w row
   if !isempty(idx_post_spike)
     Wforpost = view(plast.Walloc,idx_post_spike,:)
-    broadcast!(+, Wforpost,Wforpost,transpose(plast.traceominus.val .* plast.Aminus))
+    broadcast!(+, Wforpost,Wforpost,transpose(plast.tracerplus.val .* plast.Aplus))
   end
   # update the plasticity trace variables
   plast.tracerplus.val[idx_pre_spike] .+= 1.0

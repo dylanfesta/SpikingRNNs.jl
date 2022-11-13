@@ -11,6 +11,18 @@ using InvertedIndices
 
 #using Random; Random.seed!(0)
 
+function plotvs(x::AbstractArray{<:Real},y::AbstractArray{<:Real})
+  x,y=x[:],y[:]
+  @info """
+  The max differences between the two are $(extrema(x .-y ))
+  """
+  plt=plot()
+  scatter!(plt,x,y;leg=false,ratio=1,color=:white)
+  lm=xlims()
+  plot!(plt,identity,range(lm...;length=3);linestyle=:dash,color=:yellow)
+  return plt
+end
+
 
 function onesparsemat(w::Real)
   return sparse(cat(w;dims=2))
@@ -55,81 +67,83 @@ function post_pre_network(rate::Real,nreps::Integer,Δt_ro::Real,connection::S.C
   return ps1,ps2,myntw
 end
 
+function test_stpd_rule(Δt::R,rate::R,
+    nreps::Integer,connection::S.ConnectionPlasticityTest;wstart=100.0) where R
+  fill!(connection.weights,wstart)
+  myntw = post_pre_network(rate,nreps,Δt,connection)[3]
+  S.reset!(connection)
+  Ttot = (nreps+2)/myrate
+  times = (0:dt:Ttot)
+  for t in times 
+    S.dynamics_step!(t,myntw)
+  end
+  Δw = (connection.weights[1,1] - wstart)/nreps
+  return Δw
+end
+
+function expected_pairwise_stdp(Δt::R,τplus::R,τminus::R,Aplus::R,Aminus::R) where R
+  return Δt > 0 ? Aplus*exp(-Δt/τplus) : Aminus*exp(Δt/τminus)
+end
+
+##
+
+Δtplast = 2E-3
+Δttest = rand(Uniform(-0.1,0.1),40)
+dt = 0.5E-3
+myτplus = 10E-3
+myτminus = 45E-3
+myAplus = 1.0
+myAminus = -0.5
+myplasticity = S.PairSTDP(myτplus,myτminus,myAplus,myAminus,1,1)
+myplasticityF = S.PairSTDPFast(Δtplast,myτplus,myτminus,myAplus,myAminus,1,1)
+my_connection = S.ConnectionPlasticityTest(oneDSparse(100.0),myplasticity)
+my_connectionF = S.ConnectionPlasticityTest(oneDSparse(100.0),myplasticityF)
+myrate = 0.1
+nreps = 10
+@time Δws_num = map( Δt -> test_stpd_rule(Δt,myrate,nreps,my_connection), Δttest)
+@time Δws_numF = map( Δt -> test_stpd_rule(Δt,myrate,nreps,my_connectionF), Δttest)
+Δws_an = map( Δt -> expected_pairwise_stdp(Δt,myτplus,myτminus,myAplus,myAminus), Δttest)
+
+
+plotvs(Δws_num,Δws_an)
+plotvs(Δws_numF,Δws_an)
+plotvs(Δws_numF,Δws_num)
+
+
+@test all(isapprox.(Δws_num,Δws_an;atol=1E-2))
+
+@show extrema(Δws_num .- Δws_an)
+
+error()
+
 ##
 const dt = 0.1E-3
-# neuron 1 receives no connections
-# neuron 2 is connected to 1
 
-const myplasticity = let τplus = 10E-3,
-  τminus = 20E-3,
-  Aplus = 1E-1,
-  Aminus = -0.5E-1
-  S.PairSTDP(τplus,τminus,Aplus,Aminus,1,1)
+const myτplus = 10E-3
+const myτminus = 45E-3
+const myAplus = 1E-1
+const myAminus = -0.5E-1
+
+
+const myplasticity = S.PairSTDP(myτplus,myτminus,myAplus,myAminus,1,1)
+
+const myrate = 0.5
+const nreps = 10
+const my_connection = S.ConnectionPlasticityTest(oneDSparse(100.0),myplasticity)
+const Δt_test = range(-0.2,0.2,length=100)
+
+const Δws = @showprogress map(Δt_test) do Δt
+  test_stpd_rule(Δt,myrate,nreps,my_connection)
 end
 
-const wstart = 100.
-const conn_2_1 = S.ConnectionPlasticityTest(oneDSparse(wstart),myplasticity)
 
-const myrate = 0.1
-const nreps = 1000
-const Ttot = nreps/myrate
-const ps1,ps2,myntw = post_pre_network(myrate,nreps,0.1,conn_2_1)
-
-S.reset!(conn_2_1)
+theplot = let Δtplot = range(extrema(Δt_test)...,length=200)
+  plt = scatter(Δt_test,Δws;label="simulation")
+  plot!(plt,Δtplot,expected_stdp.(Δtplot); label="expected",
+   xlabel="Δt",ylabel="Δw",title="STDP rule")
+end;
+plot(theplot)
 
 
-function test_stpd_symmetric_rule(rate::R,
-    Δt_boundary::R,Ntot::Integer,connection::H.Connection;
-    wstart=100.0) where R
-  num_spikes = 2*Ntot 
-  Δts,population = post_pre_population_morerandom(rate,Δt_boundary,Ntot,connection)
-  network = H.RecurrentNetworkExpKernel(population)
-  wmat = connection.weights
-  ws = Vector{Float64}(undef,num_spikes)
-  fill!(wmat,wstart)
-  wmat[diagind(wmat)] .= 0.0
-  t_now = 0.0
-  H.reset!.((network,connection)) # clear spike trains etc
-  for k in 1:num_spikes
-    t_now = H.dynamics_step_singlepopulation!(t_now,network)
-    ws[k] = wmat[1,2]
-  end
-  Δws = diff(ws)[1:2:end]
-  return Δts , ws, Δws
-end
 
 ## #src
-
-myτplus = 10E-3
-myτminus = 30E-3
-myAplus = 1E-1
-myAminus = -0.5E-1
-
-function expected_symm_stdp(Δt::Real)
-  return myAplus*exp(-abs(Δt)/myτplus) + myAminus*exp(-abs(Δt)/myτminus)
-end
-
-connection_test = let wmat =  fill(100.0,2,2)
-  wmat[diagind(wmat)] .= 0.0
-  npost,npre = size(wmat)
-  stdp_plasticity = H.SymmetricSTDP(myτplus,myτminus,myAplus,myAminus,npost,npre)
-  H.ConnectionWeights(wmat,stdp_plasticity)
-end
-
-theplot = let myrate = 0.1
-  mybound = 100E-3
-  myNtest  = 800
-  xplot = range(-mybound,mybound,length=150)
-  delta_ts,testws, testDws = test_stpd_symmetric_rule(myrate,mybound,myNtest,connection_test)
-  scatter(delta_ts,testDws, xlabel="Delta t",ylabel="dw/dt", 
-    label="numeric", title="Symmetric STDP")
-  plot!(xplot, expected_symm_stdp.(xplot),linewidth=2,linestyle=:dash,color=:red,
-    label="analytic")
-end
-
-
-# **THE END**
-
-using Literate; Literate.markdown("examples/plasticity_STDP.jl","docs/src";documenter=true,repo_root_url="https://github.com/dylanfesta/HawkesSimulator.jl/blob/master") #src
-
-  function IFInputSpikesTrain(train::Vector{Vector{Float64}})
