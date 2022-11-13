@@ -565,7 +565,7 @@ end
   myAminus = -0.5
   myplasticity = S.PairSTDP(myτplus,myτminus,myAplus,myAminus,1,1)
   Δtplast = 5E-3
-  myplasticityF = S.PairSTDPFast(Δtplast,myτplus,myτminus,myAplus,myAminus,1,1)
+  myplasticityF = S.PairSTDPFastT(myτplus,myτminus,myAplus,myAminus,1,1)
   my_connection = S.ConnectionPlasticityTest(onesparsemat(100.0),myplasticity)
   my_connectionF = S.ConnectionPlasticityTest(onesparsemat(100.0),myplasticityF)
   myrate = 0.1
@@ -612,7 +612,7 @@ end
   myAplus = 1.0E-3
   myAminus = -0.5E-3
   myplasticity = S.PairSTDP(myτplus,myτminus,myAplus,myAminus,n2,n1)
-  myplasticityF = S.PairSTDPFast(Δtplast,myτplus,myτminus,myAplus,myAminus,n2,n1)
+  myplasticityF = S.PairSTDPFastT(myτplus,myτminus,myAplus,myAminus,n2,n1)
 
   wstart = fill(100.0,n2,n1)
   my_connection = S.ConnectionPlasticityTest(wstart,myplasticity)

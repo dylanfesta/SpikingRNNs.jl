@@ -272,82 +272,65 @@ function plasticity_update!(::Real,dt::Real,
 end
 
 
-
 # Fast version of pairwise STDP
+# with multithreading too!
 
-# Pairwise plasticity 
-"""
-    function PairSTDP(τplus,τminus,Aplus,Aminus,n_post,n_pre;
-         plasticity_bounds=PlasticityBoundsNonnegative())
-
-constructor for "classic" pairwise STPD rule.
-The `Aminus` coefficient, when positive, causes an *increase*
-in the weights. So it should be set negative for classic Hebbian STDP
-"""
-struct PairSTDPFast <: PlasticityRule
-  Δt::Float64
+struct PairSTDPFastT <: PlasticityRule
   Aplus::Float64
   Aminus::Float64
   tracerplus::Trace 
   traceominus::Trace
   bounds::PlasticityBounds
-  t_last::Ref{Float64} # last recorded time
-  Walloc::Matrix{Float64}
-  function PairSTDPFast(Δt::R,τplus::R,τminus::R,Aplus::R,Aminus::R,n_post::I,n_pre::I;
-       plasticity_bounds=PlasticityBoundsNonnegative()) where {R<:Real,I<:Integer}
-    t_last = 0.0
-    new(Δt,Aplus,Aminus,
+  function PairSTDPFastT(τplus,τminus,Aplus,Aminus,n_post,n_pre;
+       plasticity_bounds=PlasticityBoundsNonnegative())
+    new(Aplus,Aminus,
       Trace(τplus,n_pre),
       Trace(τminus,n_post),
-      plasticity_bounds, t_last,zeros(n_post,n_pre))
+      plasticity_bounds)
   end
 end
 
-function reset!(pl::PairSTDPFast)
+function reset!(pl::PairSTDPFastT)
   reset!(pl.tracerplus)
   reset!(pl.traceominus)
   return nothing
 end
 
-function plasticity_update!(t::Real,dt::Real,
+
+function plasticity_update!(::Real,dt::Real,
      pspost::PSSpiking,conn::Connection,pspre::PSSpiking,
-     plast::PairSTDPFast)
-  # update weights every Δt
-  if (t - plast.t_last[]) < plast.Δt
-    apply_plasticity_update!(conn.weights,plast.Walloc,plast.bounds)
-    fill!(plast.Walloc,0.0)
-    plast.t_last[] = t
-  end
+     plast::PairSTDPFastT)
+  # elements of sparse matrix that I need
+  _colptr = SparseArrays.getcolptr(conn.weights) # column indexing
+	row_idxs = rowvals(conn.weights) # postsynaptic neurons
+	weightsnz = nonzeros(conn.weights) # direct access to weights 
+  idx_pre_spike = findall(pspre.isfiring) 
+  #idx_post_spike = findall(pspost.isfiring) 
   # update synapses
-  idx_pre_spike = findall(pspre.isfiring)
-  idx_post_spike = findall(pspost.isfiring)
   # presynpatic spike go along w column
-  if !isempty(idx_pre_spike)
-    Wforpre = view(plast.Walloc,:,idx_pre_spike)
-    broadcast!(+, Wforpre,Wforpre,plast.traceominus.val .* plast.Aminus)
+  Threads.@threads for j_pre in idx_pre_spike
+		_posts_nz = nzrange(conn.weights,j_pre) # indexes of corresponding pre in nz space
+		@inbounds for _pnz in _posts_nz
+      ipost = row_idxs[_pnz]
+      Δw = plast.traceominus[ipost]*plast.Aminus
+      weightsnz[_pnz] = plast.bounds(weightsnz[_pnz],Δw)
+    end
   end
   # postsynaptic spike: go along w row
-  if !isempty(idx_post_spike)
-    Wforpost = view(plast.Walloc,idx_post_spike,:)
-    broadcast!(+, Wforpost,Wforpost,transpose(plast.tracerplus.val .* plast.Aplus))
+  _nnz = length(row_idxs)
+  Threads.@threads for _inz in (1:_nnz)
+    i_post=row_idxs[_inz]
+    if pspost.isfiring[i_post] 
+      j_pre = searchsortedlast(_colptr,_inz)
+      Δw = plast.tracerplus[j_pre]*plast.Aplus
+      weightsnz[_inz] = plast.bounds(weightsnz[_inz],Δw)
+    end
   end
   # update the plasticity trace variables
-  plast.tracerplus.val[idx_pre_spike] .+= 1.0
-  plast.traceominus.val[idx_post_spike] .+= 1.0
+  plast.tracerplus.val[pspre.isfiring] .+= 1.0
+  plast.traceominus.val[pspost.isfiring] .+= 1.0
   # time decay
   trace_decay!(plast.tracerplus,dt)
   trace_decay!(plast.traceominus,dt)
-  return nothing
-end
-
-function apply_plasticity_update!(weights::SparseMatrixCSC,ΔW::Matrix{Float64},bounds::PlasticityBounds)
-  ncols = size(weights,2)
-	weightsnz = nonzeros(weights) # direct access to weights 
-  rr = rowvals(weights)
-  for c in 1:ncols
-    rs = nzrange(weights,c)
-    row_idxs = rr[rs]
-    weightsnz[rs] = bounds.(weightsnz[rs],ΔW[row_idxs,c])
-  end
   return nothing
 end
