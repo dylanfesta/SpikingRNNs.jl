@@ -47,8 +47,8 @@ end
 function post_pre_network(rate::Real,nreps::Integer,Δt_ro::Real,connection::S.Connection)
   Ttot = nreps/rate
   trains = post_pre_spiketrains(rate,Δt_ro,Ttot) 
-  ps1 = S.PSFixedSpiketrain( )
-  ps2 = S.IFInputSpikesTrain(trains[2:2])
+  ps1 = S.PSFixedSpiketrain(trains[1:1])
+  ps2 = S.PSFixedSpiketrain(trains[2:2])
   pop1 = S.UnconnectedPopulation(ps1)
   pop2 = S.Population(ps2,(connection,ps1))
   myntw = S.RecurrentNetwork(dt,pop1,pop2);
@@ -67,7 +67,7 @@ const myplasticity = let τplus = 10E-3,
   S.PairSTDP(τplus,τminus,Aplus,Aminus,1,1)
 end
 
-const wstart = 10.
+const wstart = 100.
 const conn_2_1 = S.ConnectionPlasticityTest(oneDSparse(wstart),myplasticity)
 
 const myrate = 0.1
@@ -75,28 +75,8 @@ const nreps = 1000
 const Ttot = nreps/myrate
 const ps1,ps2,myntw = post_pre_network(myrate,nreps,0.1,conn_2_1)
 
-# ### Set recorders: spikes and weights
-const krec=1
-const rec_spikes1 = S.RecSpikes(ps1,50.0,Ttot)
-const rec_spikes2 =  S.RecSpikes(ps2,50.0,Ttot)
-const rec_weights = S.RecWeightsFull(conn_2_1,krec,dt,Ttot);
+S.reset!(conn_2_1)
 
-const myrate = 0.1
-const myboundary = 0.5
-const myNtot = 1000
-
-Dts, trains = post_pre_spiketrains_random(myrate,myboundary,myNtot)
-
-ps = S.IFInputSpikesTrain(trains)
-
-
-function post_pre_population_moandom(rate::R,
-    Δt_boundary::R,Ntot::Integer,connection::H.Connection) where R
-  Δts,prepostspikes = post_pre_spiketrains_morerandom(rate,Δt_boundary,Ntot)
-  gen = H.SGTrains(prepostspikes)
-  state = H.PopulationState(H.InputUnit(gen),2)
-  return Δts, H.PopulationInputTestWeights(state,connection)
-end
 
 function test_stpd_symmetric_rule(rate::R,
     Δt_boundary::R,Ntot::Integer,connection::H.Connection;

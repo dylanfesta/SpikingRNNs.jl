@@ -39,8 +39,8 @@ const myplasticity = let scal=5E-2,
   τy = 0.3
   A2plus = scal*0.
   A3plus = scal*1.
-  A2minus = scal*5.
-  A3minus = scal*2.
+  A2minus = -scal*5.
+  A3minus = -scal*2.
   (n_post,n_pre) = (1,1)
   S.PlasticityTriplets(τplus,τminus,τx,τy,A2plus,A3plus,
     A2minus,A3minus,n_post,n_pre)
@@ -64,10 +64,10 @@ nothing #hide
 ### Set recorders: spikes and weights
 
 ````@example plasticity_triplet_2poisson
-const krec=1
+const Δt_wrec = Ttot/200
 const rec_spikes1 = S.RecSpikes(ps1,50.0,Ttot)
 const rec_spikes2 =  S.RecSpikes(ps2,50.0,Ttot)
-const rec_weights = S.RecWeightsFull(conn_2_1,krec,dt,Ttot);
+const rec_weights = S.RecWeightsFull(conn_2_1,Δt_wrec,Ttot);
 nothing #hide
 ````
 

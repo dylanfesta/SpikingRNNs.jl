@@ -1,6 +1,6 @@
 
 # this is for presynaptic , covers also Poisson inputs generators, etc
-abstract type PSSpikingType{NT} <: PopulationState end
+abstract type PSSpikingType{NT} <: PSSpiking end
 
 # this is for postsynaptic that integrate inputs over currents
 # LIF, EIF, QIF, etc

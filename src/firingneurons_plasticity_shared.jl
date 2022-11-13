@@ -60,8 +60,8 @@ struct PairSTDP <: PlasticityRule
 end
 
 function reset!(pl::PairSTDP)
-  reset!(pl.traceplus)
-  reset!(pl.traceminus)
+  reset!(pl.tracerplus)
+  reset!(pl.traceominus)
   return nothing
 end
 

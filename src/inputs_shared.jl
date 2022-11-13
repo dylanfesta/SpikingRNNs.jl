@@ -84,10 +84,10 @@ function PSFixedSpiketrain(nt::InputFixedSpiketrain)
   counter=ones(n)
   return PSFixedSpiketrain{InputFixedSpiketrain}(nt,n,isfiring,counter)
 end
-function PSFixedSpiketrain(train::Vector{Vector{Float64}},τ::Real)
+function PSFixedSpiketrain(train::Vector{Vector{Float64}},(τ::Float64)=0.0)
   return PSFixedSpiketrain(InputFixedSpiketrain(train,τ))
 end
-function reset_input!(ps::PSFixedSpiketrain)
+function reset_input!(::PSFixedSpiketrain)
   return nothing
 end
 

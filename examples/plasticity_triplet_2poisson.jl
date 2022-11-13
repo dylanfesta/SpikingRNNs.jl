@@ -52,10 +52,10 @@ const pop2 = S.Population(ps2,(conn_2_1,ps1))
 const myntw = S.RecurrentNetwork(dt,pop1,pop2);
 
 # ### Set recorders: spikes and weights
-const krec=1
+const Δt_wrec = Ttot/200
 const rec_spikes1 = S.RecSpikes(ps1,50.0,Ttot)
 const rec_spikes2 =  S.RecSpikes(ps2,50.0,Ttot)
-const rec_weights = S.RecWeightsFull(conn_2_1,krec,dt,Ttot);
+const rec_weights = S.RecWeightsFull(conn_2_1,Δt_wrec,Ttot);
 
 ## #src
 # ## Run the network
