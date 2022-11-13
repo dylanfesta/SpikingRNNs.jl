@@ -576,7 +576,73 @@ end
 
   @test all(isapprox.(Δws_num,Δws_an;atol=0.1))
   @test all(isapprox.(Δws_numF,Δws_an;atol=0.1))
-  
+
+  # compare fast and slow
+
+  n1 = 13 # pre pop 
+  n2 = 7 # post pop 
+
+  function make_poisson_samples(rate::R,t_tot::R) where R
+    ret = Vector{R}(undef,round(Integer,1.3*rate*t_tot+10)) # preallocate
+    t_curr = zero(R)
+    k_curr = 1
+    while t_curr <= t_tot
+      Δt = -log(rand())/rate
+      t_curr += Δt
+      ret[k_curr] = t_curr
+      k_curr += 1
+    end
+    return keepat!(ret,1:k_curr-2)
+  end
+
+  Ttot = 20.0
+  ps1 = let rates = rand(Uniform(3.,20.),n1)
+      trains = make_poisson_samples.(rates,Ttot)
+      S.PSFixedSpiketrain(trains)
+  end
+  ps2 = let rates = rand(Uniform(7.,12.),n2)
+    trains = make_poisson_samples.(rates,Ttot)
+    S.PSFixedSpiketrain(trains)
+  end
+  Δtplast = 2E-3
+  dt = 0.1E-3
+
+  myτplus = 20E-3
+  myτminus = 40E-3
+  myAplus = 1.0E-3
+  myAminus = -0.5E-3
+  myplasticity = S.PairSTDP(myτplus,myτminus,myAplus,myAminus,n2,n1)
+  myplasticityF = S.PairSTDPFast(Δtplast,myτplus,myτminus,myAplus,myAminus,n2,n1)
+
+  wstart = fill(100.0,n2,n1)
+  my_connection = S.ConnectionPlasticityTest(wstart,myplasticity)
+  my_connectionF = S.ConnectionPlasticityTest(wstart,myplasticityF)
+
+  pop1 = S.UnconnectedPopulation(ps1)
+  pop2 = S.Population(ps2,(my_connection,ps1))
+  pop2F = S.Population(ps2,(my_connectionF,ps1))
+  myntw = S.RecurrentNetwork(dt,pop1,pop2)
+  myntwF = S.RecurrentNetwork(dt,pop1,pop2F)
+
+  times = (0:dt:Ttot)
+  S.reset!.((ps1,ps2,my_connection,my_connectionF))
+  fill!(my_connection.weights,100.0)
+  fill!(my_connectionF.weights,100.0)
+  for t in times 
+    S.dynamics_step!(t,myntw)
+  end
+  Δw = my_connection.weights .- 100.0
+
+  S.reset!.((ps1,ps2,my_connection,my_connectionF))
+  fill!(my_connection.weights,100.0)
+  fill!(my_connectionF.weights,100.0)
+
+  for t in times 
+    S.dynamics_step!(t,myntwF)
+  end
+  ΔwF = my_connectionF.weights .- 100.0
+  @test all(isapprox.(Δw,ΔwF,atol=1E-3))
+
 end
 
 #=

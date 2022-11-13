@@ -42,108 +42,83 @@ end
 using Plots ; theme(:dark)
 
 ##
-# Test plasticity rule, both normal and fast version
 
-function oneDSparse(w::Real)
-  return sparse(cat(w;dims=2))
-end
+const n1 = 13 # pre pop 
+const n2 = 7 # post pop 
 
-function post_pre_spiketrains(rate::R,Δt_ro::R,Ttot::R;
-    tstart::R = 0.05) where R
-  post = collect(range(tstart,Ttot; step=inv(rate)))
-  pre = post .- Δt_ro
-  return [pre,post] 
-end
+# const ps1 = let rates = rand(Uniform(3.,20.),n1)
+#   ratefun(t) = rates
+#   S.PSInputPoissonFtMulti(ratefun,0.0,n1)
+# end
+# const ps2 = let rates = rand(Uniform(7.,12.),n2)
+#   ratefun(t) = rates
+#   S.PSInputPoissonFtMulti(ratefun,0.0,n2)
+# end
 
-
-function post_pre_network(rate::Real,nreps::Integer,Δt_ro::Real,connection::S.Connection)
-  Ttot = nreps/rate
-  trains = post_pre_spiketrains(rate,Δt_ro,Ttot) 
-  ps1 = S.PSFixedSpiketrain(trains[1:1])
-  ps2 = S.PSFixedSpiketrain(trains[2:2])
-  pop1 = S.UnconnectedPopulation(ps1)
-  pop2 = S.Population(ps2,(connection,ps1))
-  myntw = S.RecurrentNetwork(dt,pop1,pop2);
-  return ps1,ps2,myntw
-end
-
-function test_stpd_rule(Δt::R,rate::R,
-    nreps::Integer,connection::S.ConnectionPlasticityTest;wstart=100.0) where R
-  fill!(connection.weights,wstart)
-  myntw = post_pre_network(rate,nreps,Δt,connection)[3]
-  S.reset!(connection)
-  Ttot = (nreps+2)/myrate
-  times = (0:dt:Ttot)
-  for t in times 
-    S.dynamics_step!(t,myntw)
+# this is here mostly for testing
+function make_poisson_samples(rate::R,t_tot::R) where R
+  ret = Vector{R}(undef,round(Integer,1.3*rate*t_tot+10)) # preallocate
+  t_curr = zero(R)
+  k_curr = 1
+  while t_curr <= t_tot
+    Δt = -log(rand())/rate
+    t_curr += Δt
+    ret[k_curr] = t_curr
+    k_curr += 1
   end
-  Δw = (connection.weights[1,1] - wstart)/nreps
-  return Δw
+  return keepat!(ret,1:k_curr-2)
 end
 
-function expected_pairwise_stdp(Δt::R,τplus::R,τminus::R,Aplus::R,Aminus::R) where R
-  return Δt > 0 ? Aplus*exp(-Δt/τplus) : Aminus*exp(Δt/τminus)
+const Ttot = 20.0
+const ps1 = let rates = rand(Uniform(3.,20.),n1)
+  trains = make_poisson_samples.(rates,Ttot)
+  S.PSFixedSpiketrain(trains)
+end
+const ps2 = let rates = rand(Uniform(7.,12.),n2)
+  trains = make_poisson_samples.(rates,Ttot)
+  S.PSFixedSpiketrain(trains)
 end
 
-##
 
-Δtplast = 2E-3
-Δttest = rand(Uniform(-0.1,0.1),40)
-dt = 0.5E-3
-myτplus = 10E-3
-myτminus = 45E-3
-myAplus = 1.0
-myAminus = -0.5
-myplasticity = S.PairSTDP(myτplus,myτminus,myAplus,myAminus,1,1)
-myplasticityF = S.PairSTDPFast(Δtplast,myτplus,myτminus,myAplus,myAminus,1,1)
-my_connection = S.ConnectionPlasticityTest(oneDSparse(100.0),myplasticity)
-my_connectionF = S.ConnectionPlasticityTest(oneDSparse(100.0),myplasticityF)
-myrate = 0.1
-nreps = 10
-@time Δws_num = map( Δt -> test_stpd_rule(Δt,myrate,nreps,my_connection), Δttest)
-@time Δws_numF = map( Δt -> test_stpd_rule(Δt,myrate,nreps,my_connectionF), Δttest)
-Δws_an = map( Δt -> expected_pairwise_stdp(Δt,myτplus,myτminus,myAplus,myAminus), Δttest)
-
-
-plotvs(Δws_num,Δws_an)
-plotvs(Δws_numF,Δws_an)
-plotvs(Δws_numF,Δws_num)
-
-
-@test all(isapprox.(Δws_num,Δws_an;atol=1E-2))
-
-@show extrema(Δws_num .- Δws_an)
-
-error()
-
-##
+const Δtplast = 2E-3
 const dt = 0.1E-3
 
-const myτplus = 10E-3
-const myτminus = 45E-3
-const myAplus = 1E-1
-const myAminus = -0.5E-1
+const myτplus = 20E-3
+const myτminus = 40E-3
+const myAplus = 1.0E-3
+const myAminus = -0.5E-3
+const myplasticity = S.PairSTDP(myτplus,myτminus,myAplus,myAminus,n2,n1)
+const myplasticityF = S.PairSTDPFast(Δtplast,myτplus,myτminus,myAplus,myAminus,n2,n1)
 
+const wstart = fill(100.0,n2,n1)
+const my_connection = S.ConnectionPlasticityTest(wstart,myplasticity)
+const my_connectionF = S.ConnectionPlasticityTest(wstart,myplasticityF)
 
-const myplasticity = S.PairSTDP(myτplus,myτminus,myAplus,myAminus,1,1)
+const pop1 = S.UnconnectedPopulation(ps1)
+const pop2 = S.Population(ps2,(my_connection,ps1))
+const pop2F = S.Population(ps2,(my_connectionF,ps1))
+const myntw = S.RecurrentNetwork(dt,pop1,pop2)
+const myntwF = S.RecurrentNetwork(dt,pop1,pop2F)
 
-const myrate = 0.5
-const nreps = 10
-const my_connection = S.ConnectionPlasticityTest(oneDSparse(100.0),myplasticity)
-const Δt_test = range(-0.2,0.2,length=100)
+const  times = (0:dt:Ttot)
+S.reset!.((ps1,ps2,my_connection,my_connectionF))
+fill!(my_connection.weights,100.0)
+fill!(my_connectionF.weights,100.0)
 
-const Δws = @showprogress map(Δt_test) do Δt
-  test_stpd_rule(Δt,myrate,nreps,my_connection)
+@time for t in times 
+  S.dynamics_step!(t,myntw)
 end
+Δw = my_connection.weights .- 100.0
 
+S.reset!.((ps1,ps2,my_connection,my_connectionF))
+fill!(my_connection.weights,100.0)
+fill!(my_connectionF.weights,100.0)
 
-theplot = let Δtplot = range(extrema(Δt_test)...,length=200)
-  plt = scatter(Δt_test,Δws;label="simulation")
-  plot!(plt,Δtplot,expected_stdp.(Δtplot); label="expected",
-   xlabel="Δt",ylabel="Δw",title="STDP rule")
-end;
-plot(theplot)
+@time for t in times 
+  S.dynamics_step!(t,myntwF)
+end
+ΔwF = my_connectionF.weights .- 100.0
 
+@test all(isapprox.(Δw,ΔwF,atol=1E-3))
 
-
-## #src
+plotvs(Δw,ΔwF)
