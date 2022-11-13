@@ -32,7 +32,6 @@ const myτminus = 40E-3
 const myAplus = 1.0E-3
 const myAminus = -0.5E-3
 const myplasticity = S.PairSTDP(myτplus,myτminus,myAplus,myAminus,npost,npre)
-const myplasticityF = S.PairSTDPFast(myτplus,myτminus,myAplus,myAminus,npost,npre)
 const myplasticityT = S.PairSTDPFastT(myτplus,myτminus,myAplus,myAminus,npost,npre)
 
 
@@ -50,23 +49,16 @@ const wstart = fill(100.0,npost,npre)
 ##
 
 println("\n")
-@info "Benchmark 1 : \n"
+@info "Benchmark 1 (standard) : \n"
 b1 = @benchmark S.plasticity_update!(0.0,$dt,$pspost,myconnection,$pspre,$myplasticity) setup=(
   myconnection =S.ConnectionPlasticityTest(wstart,myplasticity);
   add_fake_spikes!(pspost.isfiring,0.3);
   add_fake_spikes!(pspre.isfiring,0.1));
 show(stdout, MIME("text/plain"), b1)
 
-println("\n")
-@info "Benchmark 2 : \n"
-b2 = @benchmark S.plasticity_update!($dt,$dt,$pspost,myconnection,$pspre,$myplasticityF) setup=(
-  myconnection =S.ConnectionPlasticityTest(wstart,myplasticityF);
-  add_fake_spikes!(pspost.isfiring,0.3);
-  add_fake_spikes!(pspre.isfiring,0.1))
-show(stdout, MIME("text/plain"), b2)
 
 println("\n")
-@info "Benchmark 3 (multithreading) : \n"
+@info "Benchmark 1 (fast + multithreading) : \n"
 b3 = @benchmark S.plasticity_update!($dt,$dt,$pspost,myconnection,$pspre,$myplasticityT) setup=(
   myconnection =S.ConnectionPlasticityTest(wstart,myplasticityT);
   add_fake_spikes!(pspost.isfiring,0.3);
