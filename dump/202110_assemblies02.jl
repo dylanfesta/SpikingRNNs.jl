@@ -114,8 +114,8 @@ end
 
 ##
 pop_e = S.Population(ps_e,
-  (S.FakeConnection(),ps_in),
-  (S.FakeConnection(),ps_istab),
+  (S.InputDummyConnection(),ps_in),
+  (S.InputDummyConnection(),ps_istab),
   (conn_e_e,ps_e))
 
 ## network 

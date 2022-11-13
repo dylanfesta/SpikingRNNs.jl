@@ -85,7 +85,7 @@ in_weight = 10.0
 ps_in = S.PSInputPoissonConductanceExact(nt_in,in_weight,Ne)
 
 ##
-pop_e = S.Population(ps_e,(S.FakeConnection(),ps_in))
+pop_e = S.Population(ps_e,(S.InputDummyConnection(),ps_in))
 ntw = S.RecurrentNetwork(dt,pop_e)
 
 Ttot = 4.0

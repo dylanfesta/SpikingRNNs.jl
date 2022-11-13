@@ -48,9 +48,9 @@ in_state_i = S.PSSimpleInput(S.InputSimpleOffset(0.0))
 # populations are population states, plus all incoming connections
 # plus presynaptic population states
 
-pop_e = S.Population(pse,(conn_ee,conn_ei,S.FakeConnection()),
+pop_e = S.Population(pse,(conn_ee,conn_ei,S.InputDummyConnection()),
   (pse,psi,in_state_e))
-pop_i = S.Population(psi,(conn_ie,conn_ii,S.FakeConnection()),
+pop_i = S.Population(psi,(conn_ie,conn_ii,S.InputDummyConnection()),
   (pse,psi,in_state_i))
 
 dt = 1E-4

@@ -107,7 +107,7 @@ ps_in = S.PSInputPoissonConductanceExact(nt_in,w_in,Ntot)
 
 ##
 
-pop_e = S.Population(ps_e,(S.FakeConnection(),ps_in))
+pop_e = S.Population(ps_e,(S.InputDummyConnection(),ps_in))
 
 ## network 
 const dt = 0.1E-3

@@ -40,7 +40,7 @@ myps = S.PSEIF(mynt,1)
 
 ## one static input above threshold 
 in_state = S.PSSimpleInput(S.InputSimpleOffset(myinput))
-mypop = S.Population(myps,(S.FakeConnection(),),(in_state,))
+mypop = S.Population(myps,(S.InputDummyConnection(),),(in_state,))
 
 
 ## that's it, let's make the network
@@ -102,7 +102,7 @@ plot!(Vks,r0.*ps;color=:white,linewidth=2)
 
 function f_lif_num(h_in;dt=1E-4,Ttot=10.0)
   in_state = S.PSSimpleInput(S.InputSimpleOffset(h_in))
-  mypop = S.Population(myps,(S.FakeConnection(),),(in_state,))
+  mypop = S.Population(myps,(S.InputDummyConnection(),),(in_state,))
   myntw = S.RecurrentNetwork(dt,(mypop,))
   rec = S.RecCountSpikes(myps,dt)
   ## Run!

@@ -69,8 +69,8 @@ end
 
 ## connect !
 pop_et1 = S.Population(ps_e,(conn_e_in,ps_in_type1))
-pop_in1 = S.Population(ps_in_type1,(S.FakeConnection(),ps_in_type1))
-pop_et2 = S.Population(ps_e,(S.FakeConnection(),ps_in_type2))
+pop_in1 = S.Population(ps_in_type1,(S.InputDummyConnection(),ps_in_type1))
+pop_et2 = S.Population(ps_e,(S.InputDummyConnection(),ps_in_type2))
 
 ntw1 = S.RecurrentNetwork(dt,pop_et1,pop_in1)
 ntw2 = S.RecurrentNetwork(dt,pop_et2)

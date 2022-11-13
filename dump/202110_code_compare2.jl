@@ -298,7 +298,7 @@ conn_ei = let  _w = 123.0
   S.ConnGeneralIF2(wmat)
 end
 
-pop_i = S.Population(ps_i,(S.FakeConnection(),ps_input1))
+pop_i = S.Population(ps_i,(S.InputDummyConnection(),ps_input1))
 pop_e = S.Population(ps_e,(conn_ei,ps_i))
 
 

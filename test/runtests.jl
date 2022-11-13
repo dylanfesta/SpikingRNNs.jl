@@ -127,9 +127,9 @@ end
   in_state_e = S.PSSimpleInput(S.InputSimpleOffset(h_e))
   in_state_i = S.PSSimpleInput(S.InputSimpleOffset(h_i))
   pop_e = S.Population(pse,(conn_ee,pse),(conn_ei,psi),
-      (S.FakeConnection(),in_state_e))
+      (S.InputDummyConnection(),in_state_e))
   pop_i = S.Population(psi,(conn_ie,pse),(conn_ii,psi),
-      (S.FakeConnection(),in_state_i))
+      (S.InputDummyConnection(),in_state_i))
   ##
   dt = 1E-2
   T = 60.0
@@ -166,7 +166,7 @@ end
 
   # one static input 
   in_state_e = S.PSSimpleInput(S.InputSimpleOffset(myinput))
-  # connection will be FakeConnection()
+  # connection will be InputDummyConnection()
 
   # let's produce a couple of trains
   train1 = let rat = 1.0
@@ -188,7 +188,7 @@ end
   # and the E neuron connected to input
   pop_in = S.UnconnectedPopulation(ps_train_in)
   pop_e = S.Population(ps_e,(conn_e_in,ps_train_in),
-    (S.FakeConnection(),in_state_e))
+    (S.InputDummyConnection(),in_state_e))
 
   # that's it, let's make the network
   myntw = S.RecurrentNetwork(dt,pop_in,pop_e)
@@ -241,7 +241,7 @@ end
   # create static input 
   in_state_e = S.PSSimpleInput(S.InputSimpleOffset(myinput))
   # only one population: E with input
-  pop_e = S.Population(ps_e,(S.FakeConnection(),in_state_e))
+  pop_e = S.Population(ps_e,(S.InputDummyConnection(),in_state_e))
   # that's it, let's make the network
   myntw = S.RecurrentNetwork(dt,pop_e)
 
@@ -324,7 +324,7 @@ end
   in_weight = 7.0
   ps_in = S.PSInputPoissonConductanceExact(nt_in,in_weight,Ne)
 
-  pop_e = S.Population(ps_e,(S.FakeConnection(),ps_in))
+  pop_e = S.Population(ps_e,(S.InputDummyConnection(),ps_in))
   ntw = S.RecurrentNetwork(dt,pop_e)
 
   Ttot = 2.0
@@ -363,7 +363,7 @@ end
     S.NTInputConductance(sgen,sker,v_rev_e) 
   end
   ps_in = S.PSInputPoissonConductanceExact(nt_in,in_weight,Ne)
-  pop_e = S.Population(ps_e,(S.FakeConnection(),ps_in))
+  pop_e = S.Population(ps_e,(S.InputDummyConnection(),ps_in))
   ntw = S.RecurrentNetwork(dt,pop_e)
 
   rec_spikes_e = S.RecSpikes(ps_e,500.0,Ttot;idx_save=collect(1:n_e_rec),Tstart=t_wup)
@@ -403,7 +403,7 @@ end
   conn_ee = S.ConnectionPoissonExpKernel(S.PoissonExcitatory(),-1E6,fill(0.0,N,N))
 
   # population
-  pop = S.Population(ps,(conn_ee,ps),(S.FakeConnection(),ps_in))
+  pop = S.Population(ps,(conn_ee,ps),(S.InputDummyConnection(),ps_in))
 
   # network
   ntw = S.RecurrentNetwork(dt,pop)
@@ -476,9 +476,9 @@ end
   in_e = S.PoissonInputCurrentConstant(fill(he,ne))
   in_i = S.PoissonInputCurrentConstant(fill(hi,ni))
   pop_e = S.Population(ps_e,
-    (conn_ee,ps_e),(conn_ei,ps_i),(S.FakeConnection(),in_e))
+    (conn_ee,ps_e),(conn_ei,ps_i),(S.InputDummyConnection(),in_e))
   pop_i = S.Population(ps_i,
-    (conn_ie,ps_e),(conn_ii,ps_i),(S.FakeConnection(),in_i))
+    (conn_ie,ps_e),(conn_ii,ps_i),(S.InputDummyConnection(),in_i))
   ntw = S.RecurrentNetwork(dt,pop_e,pop_i)
   Ttot =40.0
   # record spiketimes and internal potential
@@ -511,7 +511,6 @@ end
   rats_i =collect(values( S.get_mean_rates(spikec_i;Tstart=10.0)))
   @test all(isapprox.(rats_e,rats_an_e;rtol=0.1))
   @test all(isapprox.(rats_i,rats_an_i;rtol=0.1))
-
 
 end
 

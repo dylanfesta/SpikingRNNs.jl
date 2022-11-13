@@ -279,7 +279,7 @@ ps_input_i = S.PSSimpleInput(S.InputSimpleOffset(in_const_i))
 
 # I to I connection
 conn_ii = S.ConnGeneralIF2(sparse(weights))
-pop_i = S.Population(ps_i,(S.FakeConnection(),ps_input_i),(conn_ii,ps_i))
+pop_i = S.Population(ps_i,(S.InputDummyConnection(),ps_input_i),(conn_ii,ps_i))
 
 
 ##
@@ -381,7 +381,7 @@ ps_input_e = S.PSSimpleInput(S.InputSimpleOffset(in_const_e))
 
 # I to I connection
 conn_ee = S.ConnGeneralIF2(sparse(weights))
-pop_e = S.Population(ps_e,(S.FakeConnection(),ps_input_e),(conn_ee,ps_e))
+pop_e = S.Population(ps_e,(S.InputDummyConnection(),ps_input_e),(conn_ee,ps_e))
 
 
 ##

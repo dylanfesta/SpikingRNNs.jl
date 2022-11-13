@@ -95,14 +95,16 @@ abstract type PlasticityRule end
 struct NoPlasticity <: PlasticityRule end
 reset!(::NoPlasticity) = nothing
 
-struct FakeConnection{N,PL<:NTuple{N,PlasticityRule}} <: Connection
+# this is for inputs. The connection exists, but weights are ignored
+struct InputDummyConnection{N,PL<:NTuple{N,PlasticityRule}} <: Connection
   weights::SparseMatrixCSC{Float64,Int64}
   plasticities::PL
-  function FakeConnection()
+  function InputDummyConnection()
     w = sparse(fill(NaN,1,1))
     return new{0,NTuple{0,NoPlasticity}}(w,())
   end
 end
+
 
 abstract type AbstractBaseConnection <: Connection end
 struct BaseConnection{N,PL<:NTuple{N,PlasticityRule}} <: Connection
@@ -121,9 +123,9 @@ struct ConnectionPlasticityTest{N,PL<:NTuple{N,PlasticityRule}} <: Connection
   weights::SparseMatrixCSC{Float64,Int64}
   plasticities::PL
 end
-function ConnectionPlasticityTest(weights::SparseMatrixCSC,
+function ConnectionPlasticityTest(weights::AbstractMatrix,
     (plasticities::PlasticityRule)...)
-  return ConnectionPlasticityTest(weights,plasticities)
+  return ConnectionPlasticityTest(sparse(weights),plasticities)
 end
 function reset!(conn::ConnectionPlasticityTest)
   reset!.(conn.plasticities)
@@ -238,9 +240,10 @@ end
 end
 
 # Computes the input, considering each connection and each presynaptic population
-function forward_signal!(tnow::Real,dt::Real,p_post::PopulationState,c::Connection,p_pre::PopulationState)
+function forward_signal!(::Real,::Real,::PopulationState,::ConnectionPlasticityTest,::PopulationState)
   return nothing
 end
+
 function forward_signal!(tnow::Real,dt::Real,p::AbstractPopulation)
   for i in 1:n_prepops(p)
     forward_signal!(tnow,dt,p.state,p.connections[i],p.pre_states[i])
@@ -259,6 +262,7 @@ end
 
 
 # this is the network iteration
+# everything happens here.
 function dynamics_step!(t_now::Float64,ntw::RecurrentNetwork)
   reset_input!.(ntw.populations)
   forward_signal!.(t_now,ntw.dt,ntw.populations)

@@ -58,7 +58,7 @@ nt_in,ps_in = let spkgen = S.SGPoisson(ext_rate)
 end
 
 ## Connek !
-pop_e = S.Population(ps_e,(conn_e_e,ps_e),(S.FakeConnection(),ps_in))
+pop_e = S.Population(ps_e,(conn_e_e,ps_e),(S.InputDummyConnection(),ps_in))
 myntw = S.RecurrentNetwork(dt,pop_e)
 
 ## run for a very short time, and check stability
@@ -112,8 +112,8 @@ end
 ## connect with stabilizer
 pop_e_stab = S.Population(ps_e,
   (conn_e_e,ps_e),
-  (S.FakeConnection(),ps_in),
-  (S.FakeConnection(),ps_istab))
+  (S.InputDummyConnection(),ps_in),
+  (S.InputDummyConnection(),ps_istab))
 
 myntw_stab = S.RecurrentNetwork(dt,pop_e_stab)
 

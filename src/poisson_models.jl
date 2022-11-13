@@ -181,21 +181,21 @@ struct PoissonInputCurrentNormal <: PopulationState
 end
 
 @inline function forward_signal!(::Real,::Real,
-        pspost::PSPoissonNeuron,conn::FakeConnection,
+        pspost::PSPoissonNeuron,::InputDummyConnection,
         pspre::PoissonInputCurrentConstant)
   pspost.input .+= pspre.current
   return nothing
 end
 
 @inline function forward_signal!(t_now::Real,::Real,
-        pspost::PSPoissonNeuron,conn::FakeConnection,
+        pspost::PSPoissonNeuron,::InputDummyConnection,
         pspre::PoissonInputCurrentFunVector)
   current::Vector{Float64} = pspre.f(t_now)
   pspost.input .+= current
   return nothing
 end
 function forward_signal!(::Real,dt::Real,
-      pspost::PSPoissonNeuron,conn::FakeConnection,
+      pspost::PSPoissonNeuron,::InputDummyConnection,
       pspre::PoissonInputCurrentNormal)
   # generate random values    
   randn!(pspre.rand_alloc)

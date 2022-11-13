@@ -30,123 +30,126 @@ end
 using Plots ; theme(:dark)
 
 ##
-# test 2, rate for 500 neurons should be the similar to 2D system 
+# Test plasticity rule, both normal and fast version
 
-ne = 350
-ni = 150
-N = ne+ni
-dt = 0.1E-3
-τe,τi = 0.5,0.2
-
-he,hi = 70.,5.
-
-sparse_ee = 0.3
-sparse_ie = 0.3
-sparse_ei = 0.4
-sparse_ii = 0.4
-
-τker_e = 0.8
-τker_i = 0.4
-
-wee_scal,wie_scal,wei_scal,wii_scal=(1.5,2.0,1.3,.8)
-
-w_ee = S.sparse_constant_wmat(ne,ne,sparse_ee,1.0;rowsum=wee_scal) 
-w_ie = S.sparse_constant_wmat(ni,ne,sparse_ie,1.0;rowsum=wie_scal,no_autapses=false) 
-w_ei = S.sparse_constant_wmat(ne,ni,sparse_ei,1.0;rowsum=wei_scal,no_autapses=false) 
-w_ii = S.sparse_constant_wmat(ni,ni,sparse_ii,1.0;rowsum=wii_scal) 
-
-Wdense = wstick(w_ee,w_ie,w_ei,w_ii)
-h_full = vcat(fill(he,ne),fill(hi,ni))
-
-rats_an = rates_analytic(Wdense,h_full)
-
-@info "expected E rate $(rats_an[1])"
-@info "expected I rate $(rats_an[end])"
-
-
-ps_e =  S.PSPoissonNeuron(τe,ne)
-ps_i =  S.PSPoissonNeuron(τi,ni)
-
-conn_ee = S.ConnectionPoissonExpKernel(S.PoissonExcitatory(),τker_e,w_ee)
-conn_ie = S.ConnectionPoissonExpKernel(S.PoissonExcitatory(),τker_e,w_ie)
-conn_ei = S.ConnectionPoissonExpKernel(S.PoissonInhibitory(),τker_i,w_ei)
-conn_ii = S.ConnectionPoissonExpKernel(S.PoissonInhibitory(),τker_i,w_ii)
-
-# inputs
-
-in_e = S.PoissonInputCurrentConstant(fill(he,ne))
-in_i = S.PoissonInputCurrentConstant(fill(hi,ni))
-
-pop_e = S.Population(ps_e,
-  (conn_ee,ps_e),(conn_ei,ps_i),(S.FakeConnection(),in_e))
-
-pop_i = S.Population(ps_i,
-  (conn_ie,ps_e),(conn_ii,ps_i),(S.FakeConnection(),in_i))
-
-
-ntw = S.RecurrentNetwork(dt,pop_e,pop_i)
-
-Ttot =20.0
-# record spiketimes and internal potential
-rec_spikes_e = S.RecSpikes(ps_e,800.0,Ttot)
-rec_spikes_i = S.RecSpikes(ps_i,800.0,Ttot)
-
-rec_state_e  = S.RecStateNow(ps_e,10,dt,Ttot;idx_save=[1,2,3])
-rec_state_i  = S.RecStateNow(ps_i,10,dt,Ttot;idx_save=[1,2,3])
-
-times = (0:ntw.dt:Ttot)
-nt = length(times)
-# clean up
-S.reset!.([ps_e,ps_i,rec_spikes_e,rec_spikes_i,rec_state_e,rec_state_i])
-# initial conditions
-ps_e.state_now .= 50.0
-ps_i.state_now .= 50.0
-
-@time begin
-  @showprogress 5.0 "network simulation " for (k,t) in enumerate(times)
-    rec_spikes_e(t,k,ntw)
-    rec_spikes_i(t,k,ntw)
-    rec_state_e(t,k,ntw)
-    rec_state_i(t,k,ntw)
-    S.dynamics_step!(t,ntw)
-  end
+function oneDSparse(w::Real)
+  return sparse(cat(w;dims=2))
 end
 
-spikec_e = S.get_content(rec_spikes_e)
-spikec_i = S.get_content(rec_spikes_i)
+function post_pre_spiketrains(rate::R,Δt_ro::R,Ttot::R;
+    tstart::R = 0.05) where R
+  post = collect(range(tstart,Ttot; step=inv(rate)))
+  pre = post .- Δt_ro
+  return [pre,post] 
+end
 
 
-rats_e = collect(values(S.get_mean_rates(spikec_e;Tstart=5.0)))
-rats_i =collect(values( S.get_mean_rates(spikec_i;Tstart=5.0)))
-
-histogram(values(rats_e) .- rats_an[1] )
-
-@info "measured E rate $(mean(rats_e))"
-@info "measured I rate $(mean(rats_i))"
-
-myrast = S.draw_spike_raster( vcat(S.get_spiketrains(spikec_e)[1],S.get_spiketrains(spikec_i)[1]),
-          0.001,1.0)
-save("/tmp/rast.png",myrast)
-
-@show rec_state_e.state_now[:,end]
-@show rec_state_i.state_now[:,end]
-
-scatter(rec_state_e.times,rec_state_e.state_now[3,:])
-scatter!(rec_state_i.times,rec_state_i.state_now[3,:])
-
-## check code
-
-ps_e =  S.PSPoissonNeuron(τe,10_000)
-ps_e =  S.PSPoissonNeuron(τe,10_000)
+function post_pre_network(rate::Real,nreps::Integer,Δt_ro::Real,connection::S.Connection)
+  Ttot = nreps/rate
+  trains = post_pre_spiketrains(rate,Δt_ro,Ttot) 
+  ps1 = S.PSFixedSpiketrain( )
+  ps2 = S.IFInputSpikesTrain(trains[2:2])
+  pop1 = S.UnconnectedPopulation(ps1)
+  pop2 = S.Population(ps2,(connection,ps1))
+  myntw = S.RecurrentNetwork(dt,pop1,pop2);
+  return ps1,ps2,myntw
+end
 
 ##
-using BenchmarkTools
+const dt = 0.1E-3
+# neuron 1 receives no connections
+# neuron 2 is connected to 1
 
-@benchmark S.local_update!(0.0,$dt,ps__)  setup=(N=100_000; ps__= S.PSPoissonNeuron(τe,N); ps__.input .= rand(N)*5.0  )
-println("\n\n")
-@benchmark S.local_update_new!(0.0,$dt,ps__)  setup=(N=100_000; ps__= S.PSPoissonNeuron(τe,N); ps__.input .= rand(N)*5.0  )
+const myplasticity = let τplus = 10E-3,
+  τminus = 20E-3,
+  Aplus = 1E-1,
+  Aminus = -0.5E-1
+  S.PairSTDP(τplus,τminus,Aplus,Aminus,1,1)
+end
 
-##
+const wstart = 10.
+const conn_2_1 = S.ConnectionPlasticityTest(oneDSparse(wstart),myplasticity)
 
-@code_warntype S.local_update!(0.0,dt,ps_e)
-@code_warntype S.local_update_new!(0.0,dt,ps_e)
+const myrate = 0.1
+const nreps = 1000
+const Ttot = nreps/myrate
+const ps1,ps2,myntw = post_pre_network(myrate,nreps,0.1,conn_2_1)
+
+# ### Set recorders: spikes and weights
+const krec=1
+const rec_spikes1 = S.RecSpikes(ps1,50.0,Ttot)
+const rec_spikes2 =  S.RecSpikes(ps2,50.0,Ttot)
+const rec_weights = S.RecWeightsFull(conn_2_1,krec,dt,Ttot);
+
+const myrate = 0.1
+const myboundary = 0.5
+const myNtot = 1000
+
+Dts, trains = post_pre_spiketrains_random(myrate,myboundary,myNtot)
+
+ps = S.IFInputSpikesTrain(trains)
+
+
+function post_pre_population_moandom(rate::R,
+    Δt_boundary::R,Ntot::Integer,connection::H.Connection) where R
+  Δts,prepostspikes = post_pre_spiketrains_morerandom(rate,Δt_boundary,Ntot)
+  gen = H.SGTrains(prepostspikes)
+  state = H.PopulationState(H.InputUnit(gen),2)
+  return Δts, H.PopulationInputTestWeights(state,connection)
+end
+
+function test_stpd_symmetric_rule(rate::R,
+    Δt_boundary::R,Ntot::Integer,connection::H.Connection;
+    wstart=100.0) where R
+  num_spikes = 2*Ntot 
+  Δts,population = post_pre_population_morerandom(rate,Δt_boundary,Ntot,connection)
+  network = H.RecurrentNetworkExpKernel(population)
+  wmat = connection.weights
+  ws = Vector{Float64}(undef,num_spikes)
+  fill!(wmat,wstart)
+  wmat[diagind(wmat)] .= 0.0
+  t_now = 0.0
+  H.reset!.((network,connection)) # clear spike trains etc
+  for k in 1:num_spikes
+    t_now = H.dynamics_step_singlepopulation!(t_now,network)
+    ws[k] = wmat[1,2]
+  end
+  Δws = diff(ws)[1:2:end]
+  return Δts , ws, Δws
+end
+
+## #src
+
+myτplus = 10E-3
+myτminus = 30E-3
+myAplus = 1E-1
+myAminus = -0.5E-1
+
+function expected_symm_stdp(Δt::Real)
+  return myAplus*exp(-abs(Δt)/myτplus) + myAminus*exp(-abs(Δt)/myτminus)
+end
+
+connection_test = let wmat =  fill(100.0,2,2)
+  wmat[diagind(wmat)] .= 0.0
+  npost,npre = size(wmat)
+  stdp_plasticity = H.SymmetricSTDP(myτplus,myτminus,myAplus,myAminus,npost,npre)
+  H.ConnectionWeights(wmat,stdp_plasticity)
+end
+
+theplot = let myrate = 0.1
+  mybound = 100E-3
+  myNtest  = 800
+  xplot = range(-mybound,mybound,length=150)
+  delta_ts,testws, testDws = test_stpd_symmetric_rule(myrate,mybound,myNtest,connection_test)
+  scatter(delta_ts,testDws, xlabel="Delta t",ylabel="dw/dt", 
+    label="numeric", title="Symmetric STDP")
+  plot!(xplot, expected_symm_stdp.(xplot),linewidth=2,linestyle=:dash,color=:red,
+    label="analytic")
+end
+
+
+# **THE END**
+
+using Literate; Literate.markdown("examples/plasticity_STDP.jl","docs/src";documenter=true,repo_root_url="https://github.com/dylanfesta/HawkesSimulator.jl/blob/master") #src
+
+  function IFInputSpikesTrain(train::Vector{Vector{Float64}})

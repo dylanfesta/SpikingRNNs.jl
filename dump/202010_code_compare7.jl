@@ -1492,10 +1492,10 @@ end
 ## Populations
 
 pop_e = S.Population(ps_e,(conn_ee,ps_e),(conn_ei,ps_i),
-  (S.FakeConnection(),ps_in_e))
+  (S.InputDummyConnection(),ps_in_e))
 
 pop_i = S.Population(ps_i,(conn_ii,ps_i),(conn_ie,ps_e),
-  (S.FakeConnection(),ps_in_i))
+  (S.InputDummyConnection(),ps_in_i))
 ##
 # that's it, let's make the network
 myntw = S.RecurrentNetwork(dt,pop_e,pop_i)

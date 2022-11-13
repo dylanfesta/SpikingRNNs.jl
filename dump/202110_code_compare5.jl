@@ -305,9 +305,9 @@ conn_ie = let w_ie = weights[Ne+1:end,1:Ne]
 end
 
 # input populations
-pop_e = S.Population(ps_e,(S.FakeConnection(),ps_input_e),
+pop_e = S.Population(ps_e,(S.InputDummyConnection(),ps_input_e),
    (conn_ee,ps_e),(conn_ei,ps_i) )
-pop_i = S.Population(ps_i,(S.FakeConnection(),ps_input_i),
+pop_i = S.Population(ps_i,(S.InputDummyConnection(),ps_input_i),
    (conn_ii,ps_i),(conn_ie,ps_e) )
 
 ##

@@ -298,7 +298,7 @@ conn_ii = let  _w = 231.0
   S.ConnGeneralIF2(wmat)
 end
 
-pop_i1 = S.Population(ps_i1,(S.FakeConnection(),ps_input1i))
+pop_i1 = S.Population(ps_i1,(S.InputDummyConnection(),ps_input1i))
 pop_i2 = S.Population(ps_i2,(conn_ii,ps_i1))
 
 
@@ -365,7 +365,7 @@ ps_e = S.PSLIFConductance(nt_e,1)
 ps_i = ps_i1
 
 
-pop_e = S.Population(ps_e,(S.FakeConnection(),ps_input1e))
+pop_e = S.Population(ps_e,(S.InputDummyConnection(),ps_input1e))
 pop_i = S.Population(ps_i,(conn_ie,ps_e))
 
 myntw = S.RecurrentNetwork(dt,pop_e,pop_i)

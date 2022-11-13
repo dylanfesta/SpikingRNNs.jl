@@ -35,7 +35,7 @@ in_state = S.PSSimpleInput(S.InputSimpleOffset(myinput))
 # ... plus noise
 in_state_noise = S.PSSimpleInput(S.InputIndependentNormal(myσ))
 ##
-mypop = S.Population(myps,(S.FakeConnection(),S.FakeConnection()),
+mypop = S.Population(myps,(S.InputDummyConnection(),S.InputDummyConnection()),
     (in_state,in_state_noise))
 
 

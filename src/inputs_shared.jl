@@ -402,7 +402,7 @@ end
 
 ##### 
 # here I also supplement the Forward signal , for simplicity and efficiency
-# works with FakeConnection only
+# works with InputDummyConnection only
 # downside : one needs to include the population weight here (vector of weights)
 # other downside : NO PLASTICITY
 # note that input could be correlated, if I define the spike generation in 
@@ -460,7 +460,7 @@ end
 end
 
 function forward_signal!(t_now::Real,dt::Real,
-      pspost::PSLIFConductance,::FakeConnection,
+      pspost::PSLIFConductance,::InputDummyConnection,
       pspre::PSInputPoissonConductance)
   preneu = pspre.neurontype
   pre_v_reversal = preneu.v_reversal
@@ -568,7 +568,7 @@ end
 end
 
 function forward_signal!(t_now::Real,dt::Real,
-      pspost::PSLIFConductance,::FakeConnection,
+      pspost::PSLIFConductance,::InputDummyConnection,
       pspre::PSInputPoissonConductanceExact)
   preneu = pspre.neurontype
   pre_v_reversal = preneu.v_reversal
@@ -611,7 +611,7 @@ end
 
 # from Fiete et al , 2010 , Neuron
 # not a firing neuron type! More like an input type 
-# all constants here, works with FakeConnection only
+# all constants here, works with InputDummyConnection only
 struct NTConductanceInputInhibitoryStabilization <:NeuronType
   v_reversal::Float64
   Aglo::Float64
@@ -666,7 +666,7 @@ function local_update!(::Float64,::Float64,
 end
 
 function forward_signal!(t_now::Real,dt::Real,
-      pspost::PSLIFConductance,::FakeConnection,
+      pspost::PSLIFConductance,::InputDummyConnection,
       pspre::PSConductanceInputInhibitionStabilization)
   preneu = pspre.neurontype
 	# add the currents to postsynaptic input

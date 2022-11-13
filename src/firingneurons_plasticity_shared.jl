@@ -270,3 +270,84 @@ function plasticity_update!(::Real,dt::Real,
   trace_decay!(plast.tracer,dt)
   return nothing
 end
+
+
+
+# Fast version of pairwise STDP
+
+# Pairwise plasticity 
+"""
+    function PairSTDP(τplus,τminus,Aplus,Aminus,n_post,n_pre;
+         plasticity_bounds=PlasticityBoundsNonnegative())
+
+constructor for "classic" pairwise STPD rule.
+The `Aminus` coefficient, when positive, causes an *increase*
+in the weights. So it should be set negative for classic Hebbian STDP
+"""
+struct PairSTDPFast <: PlasticityRule
+  Δt::Float64
+  Aplus::Float64
+  Aminus::Float64
+  tracerplus::Trace 
+  traceominus::Trace
+  bounds::PlasticityBounds
+  t_last::Ref{Float64} # last recorded time
+  Walloc::Matrix{Float64}
+  function PairSTDPFast(τplus,τminus,Aplus,Aminus,n_post,n_pre;
+       plasticity_bounds=PlasticityBoundsNonnegative())
+    t_last = 0.0
+    new(Aplus,Aminus,
+      Trace(τplus,n_pre),
+      Trace(τminus,n_post),
+      plasticity_bounds, t_last,zeros(n_post,n_pre))
+  end
+end
+
+function reset!(pl::PairSTDPFast)
+  reset!(pl.traceplus)
+  reset!(pl.traceminus)
+  return nothing
+end
+
+function plasticity_update!(t::Real,dt::Real,
+     pspost::PSSpiking,conn::Connection,pspre::PSSpiking,
+     plast::PairSTDPFast)
+  # update weights every Δt
+  if (t - plast.t_last[]) < plast.Δt
+    apply_plasticity_update!(conn.weights,plast.Walloc,plast.bounds)
+    fill!(plast.Walloc,0.0)
+    plast.t_last[] = t
+  end
+  # update synapses
+  idx_pre_spike = findall(pspre.isfiring)
+  idx_post_spike = findall(pspost.isfiring)
+  # presynpatic spike go along w column
+  if !isempty(idx_pre_spike)
+    Wforpre = view(plast.Walloc,:,idx_pre_spike)
+    broadcast!(+, Wforpre,Wforpre,plast.traceominus.val .* plast.Aminus)
+  end
+  # postsynaptic spike: go along w row
+  if !isempty(idx_post_spike)
+    Wforpost = view(plast.Walloc,idx_post_spike,:)
+    broadcast!(+, Wforpost,Wforpost,transpose(plast.traceominus.val .* plast.Aminus))
+  end
+  # update the plasticity trace variables
+  plast.tracerplus.val[idx_pre_spike] .+= 1.0
+  plast.traceominus.val[idx_post_spike] .+= 1.0
+  # time decay
+  trace_decay!(plast.tracerplus,dt)
+  trace_decay!(plast.traceominus,dt)
+  return nothing
+end
+
+function apply_plasticity_update!(weights::SparseMatrixCSC,ΔW::Matrix{Float64},bounds::PlasticityBounds)
+  ncols = size(weights,2)
+	weightsnz = nonzeros(weights) # direct access to weights 
+  rr = rowvals(weights)
+  for c in 1:ncols
+    rs = nzrange(weights,c)
+    row_idxs = rr[rs]
+    weightsnz[rs] = bounds.(weightsnz[rs],ΔW[row_idxs,c])
+  end
+  return nothing
+end
