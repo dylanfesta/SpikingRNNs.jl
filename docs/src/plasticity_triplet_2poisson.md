@@ -99,8 +99,8 @@ end
 
 ````@example plasticity_triplet_2poisson
 theplot = let plt=plot(;leg=false,markersize=10),
-  tra1 = S.get_spiketrains(rec_spikes1)[1]
-  tra2 = S.get_spiketrains(rec_spikes2)[1]
+  tra1 = S.get_spiketrains(rec_spikes1)
+  tra2 = S.get_spiketrains(rec_spikes2)
   scatter!(plt,_->1,tra1,marker=:vline,color=:black,ylims=(0,3),
     markersize=20)
   scatter!(plt,_->2,tra2,marker=:vline,color=:black,ylims=(0,3),
@@ -118,8 +118,8 @@ theplot = let _recw = S.get_content(rec_weights)
   plt=plot(leg=false)
   plot!(plt,x,y;linewidth=2,leg=false,
     xlabel="time (s)")
-  tra1 = S.get_spiketrains(rec_spikes1)[1]
-  tra2 = S.get_spiketrains(rec_spikes2)[1]
+  tra1 = S.get_spiketrains(rec_spikes1)
+  tra2 = S.get_spiketrains(rec_spikes2)
   scatter!(twinx(plt),_->1,tra1 ;
      marker=:vline,color=:black,ylims=(0.5,3),leg=false)
   scatter!(twinx(plt),_->2,tra2 ;

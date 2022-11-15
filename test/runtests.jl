@@ -431,9 +431,6 @@ end
   spikes_c = S.get_content(rec_spikes_e)
   states_c = S.get_content(rec_state_e)
 
-  # myrast = S.draw_spike_raster(S.get_spiketrains(spikes_c)[1],0.001,0.5)
-  # save("/tmp/rast.png",myrast)
-
   rats = S.get_mean_rates(spikes_c)
 
   @test all(isapprox.(values(rats),h_in;rtol=0.2))
