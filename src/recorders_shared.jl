@@ -190,12 +190,18 @@ function get_spiketimes_spikeneurons(rec::Union{RecSpikes,RecSpikesContent})
   return Float64.(rec.spiketimes[_idx]),Int64.(rec.spikeneurons[_idx])
 end
 
-function get_spiketimes_dictionary(rec::Union{RecSpikes,RecSpikesContent})
+function get_spiketimes_dictionary(rec::Union{RecSpikes,RecSpikesContent};
+    Nneurons::Union{Int64,Nothing}=nothing)
   spk_t,spk_neu = get_spiketimes_spikeneurons(rec)
+  Nneu = something(Nneurons,maximum(spk_neu))
   ret=Dict{Int64,Vector{Float64}}()
-  for neu in unique(spk_neu)
+  for neu in 1:Nneu
     idx = spk_neu.==neu
-    ret[neu] = spk_t[idx]
+    if !isempty(idx)
+      ret[neu] = spk_t[idx]
+    else
+      ret[neu] = Float64[] 
+    end
   end
   return ret
 end
@@ -213,18 +219,18 @@ function get_spiketrains(rec::Union{RecSpikes,RecSpikesContent};
 end
 
 
-
-# warning: when neurons has zero rate, it never spiked, so it's not in the dictinary
 function get_mean_rates(rec::Union{RecSpikes,RecSpikesContent};
-    Tstart::Float64=Inf,Tend::Float64=Inf)
+    Tstart::Float64=Inf,Tend::Float64=Inf,Nneurons::Union{Nothing,Int64}=nothing)
   Tstart = isfinite(Tstart) ? Tstart : rec.Tstart
   Tend = isfinite(Tend) ? Tend : rec.Tend
   ΔT = Tend-Tstart
-  dict = get_spiketimes_dictionary(rec)
-  ret = Dict{Int64,Float64}()
-  for (neu,spks) in pairs(dict)
-    nspk = count( Tstart .<= spks .<= Tend )
-    ret[neu] = nspk/ΔT
+  trains = get_spiketrains(rec;Nneurons=Nneurons)
+  ret = fill(0.0,length(trains))
+  for k in eachindex(trains)
+    tr =  trains[k]
+    if !isempty(tr)
+      ret[k] = count( Tstart .<= trains[k] .<= Tend ) / ΔT
+    end
   end
   return ret
 end
