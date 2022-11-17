@@ -87,10 +87,14 @@ const myτplus = 20E-3
 const myτminus = 40E-3
 const myAplus = 1.0E-3
 const myAminus = -0.5E-3
-const myplasticity = S.PairSTDP(myτplus,myτminus,myAplus,myAminus,n2,n1)
-const myplasticityF = S.PairSTDPFast(Δtplast,myτplus,myτminus,myAplus,myAminus,n2,n1)
 
-const wstart = fill(100.0,n2,n1)
+const wstart = let wmask = rand(n2,n1) .< 1.0
+   fill(100.0,n2,n1).*wmask
+end
+wstart[end,end] = 0
+const myplasticity = S.PairSTDP(myτplus,myτminus,myAplus,myAminus,n2,n1)
+const myplasticityF = S.PairSTDP_T(myτplus,myτminus,myAplus,myAminus,wstart)
+
 const my_connection = S.ConnectionPlasticityTest(wstart,myplasticity)
 const my_connectionF = S.ConnectionPlasticityTest(wstart,myplasticityF)
 
@@ -102,8 +106,8 @@ const myntwF = S.RecurrentNetwork(dt,pop1,pop2F)
 
 const  times = (0:dt:Ttot)
 S.reset!.((ps1,ps2,my_connection,my_connectionF))
-fill!(my_connection.weights,100.0)
-fill!(my_connectionF.weights,100.0)
+fill!(nonzeros(my_connection.weights),100.0)
+fill!(nonzeros(my_connectionF.weights),100.0)
 
 @time for t in times 
   S.dynamics_step!(t,myntw)
@@ -111,8 +115,8 @@ end
 Δw = my_connection.weights .- 100.0
 
 S.reset!.((ps1,ps2,my_connection,my_connectionF))
-fill!(my_connection.weights,100.0)
-fill!(my_connectionF.weights,100.0)
+fill!(nonzeros(my_connection.weights),100.0)
+fill!(nonzeros(my_connectionF.weights),100.0)
 
 @time for t in times 
   S.dynamics_step!(t,myntwF)
@@ -122,3 +126,42 @@ end
 @test all(isapprox.(Δw,ΔwF,atol=1E-3))
 
 plotvs(Δw,ΔwF)
+
+
+Δw[end-1,end]
+ΔwF[end,end]
+
+##
+
+
+
+(nt1,nt2) = 7, 10
+mattest = let mask = rand(nt1,nt2) .< 1.01
+  fill(1.0,nt1,nt2).*mask
+end
+mattest[end,end] = .0
+Ms = sparse(mattest)
+Msstart = copy(Ms)
+rows_ptr,cols_idxs,sparse_remapping = S.sparse_rows_remapping_idxs(Ms)
+
+myrow = 4
+
+elrow = rows_ptr[myrow]:rows_ptr[myrow+1]-1
+
+elcols = sparse_remapping[elrow]
+
+Msnz = nonzeros(Ms)
+
+Msnz[elcols] .= 4.0
+
+
+heatmap(Matrix(Msstart);ratio=1)
+heatmap(Matrix(Ms);ratio=1)
+
+
+Mscopy_nz = nonzeros(Mscopy)
+for (idx,val) in zip(sparse_remapping,nonzeros(Mts))
+  Mscopy_nz[idx] = val
+end
+@test all(nonzeros(Ms) .== nonzeros(Mscopy))
+@test all(Ms .== Mscopy)

@@ -554,6 +554,24 @@ end
 
 @testset "pairwise STPD" begin
   
+  # test auxiliary row-wise remapping
+  (nt1,nt2) = 1200, 600
+  mattest = let mask = rand(nt1,nt2) .< 0.3
+    randn(nt1,nt2).*mask
+  end
+  Ms = sparse(mattest)
+  Mts = sparse(mattest')
+  Mscopy = similar(Ms)
+  fill!(nonzeros(Mscopy),NaN)
+  rows_ptr,cols_idxs,sparse_remapping = S.sparse_rows_remapping_idxs(Mscopy)
+  Mscopy_nz = nonzeros(Mscopy)
+  for (idx,val) in zip(sparse_remapping,nonzeros(Mts))
+    Mscopy_nz[idx] = val
+  end
+  @test all(nonzeros(Ms) .== nonzeros(Mscopy))
+  @test all(Ms .== Mscopy)
+
+
   Δttest = rand(Uniform(-0.1,0.1),20)
   dt = 0.5E-3
   myτplus = 10E-3
@@ -562,7 +580,7 @@ end
   myAminus = -0.5
   myplasticity = S.PairSTDP(myτplus,myτminus,myAplus,myAminus,1,1)
   Δtplast = 5E-3
-  myplasticityF = S.PairSTDPFastT(myτplus,myτminus,myAplus,myAminus,1,1)
+  myplasticityF = S.PairSTDP_T(myτplus,myτminus,myAplus,myAminus,onesparsemat(123.0))
   my_connection = S.ConnectionPlasticityTest(onesparsemat(100.0),myplasticity)
   my_connectionF = S.ConnectionPlasticityTest(onesparsemat(100.0),myplasticityF)
   myrate = 0.1
@@ -577,7 +595,7 @@ end
   # compare fast and slow
 
   n1 = 13 # pre pop 
-  n2 = 7 # post pop 
+  n2 = 8 # post pop 
 
   function make_poisson_samples(rate::R,t_tot::R) where R
     ret = Vector{R}(undef,round(Integer,1.3*rate*t_tot+10)) # preallocate
@@ -608,12 +626,14 @@ end
   myτminus = 40E-3
   myAplus = 1.0E-3
   myAminus = -0.5E-3
+  wstart = let mask = rand(n2,n1) .< 0.5
+    sparse(fill(100.0,n2,n1)).*mask
+  end
   myplasticity = S.PairSTDP(myτplus,myτminus,myAplus,myAminus,n2,n1)
-  myplasticityF = S.PairSTDPFastT(myτplus,myτminus,myAplus,myAminus,n2,n1)
+  myplasticityF = S.PairSTDP_T(myτplus,myτminus,myAplus,myAminus,wstart)
 
-  wstart = fill(100.0,n2,n1)
-  my_connection = S.ConnectionPlasticityTest(wstart,myplasticity)
-  my_connectionF = S.ConnectionPlasticityTest(wstart,myplasticityF)
+  my_connection = S.ConnectionPlasticityTest(copy(wstart),myplasticity)
+  my_connectionF = S.ConnectionPlasticityTest(copy(wstart),myplasticityF)
 
   pop1 = S.UnconnectedPopulation(ps1)
   pop2 = S.Population(ps2,(my_connection,ps1))
@@ -623,22 +643,22 @@ end
 
   times = (0:dt:Ttot)
   S.reset!.((ps1,ps2,my_connection,my_connectionF))
-  fill!(my_connection.weights,100.0)
-  fill!(my_connectionF.weights,100.0)
+  fill!(nonzeros(my_connection.weights),100.0)
+  fill!(nonzeros(my_connectionF.weights),100.0)
   for t in times 
     S.dynamics_step!(t,myntw)
   end
-  Δw = my_connection.weights .- 100.0
+  Δw = nonzeros(my_connection.weights) .- 100.0
 
   S.reset!.((ps1,ps2,my_connection,my_connectionF))
-  fill!(my_connection.weights,100.0)
-  fill!(my_connectionF.weights,100.0)
+  fill!(nonzeros(my_connection.weights),100.0)
+  fill!(nonzeros(my_connectionF.weights),100.0)
 
   for t in times 
     S.dynamics_step!(t,myntwF)
   end
-  ΔwF = my_connectionF.weights .- 100.0
-  @test all(isapprox.(Δw,ΔwF,atol=1E-3))
+  ΔwF = nonzeros(my_connectionF.weights) .- 100.0
+  @test all(isapprox.(Δw,ΔwF,atol=1E-4))
 
 end
 

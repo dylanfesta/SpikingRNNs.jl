@@ -9,7 +9,6 @@ using ProgressMeter
 
 using InvertedIndices
 
-##
 
 function add_fake_spikes!(v::BitArray{1},p::Real)
   for i in eachindex(v)
@@ -19,25 +18,29 @@ function add_fake_spikes!(v::BitArray{1},p::Real)
 end
 
 ##
-const npre = 2_000 # pre pop 
-const npost = 1_500 # post pop 
+npre = 2_000 # pre pop 
+npost = 1_500 # post pop 
 
-const pspre = S.PSPoisson(0,0.0,npre)
-const pspost = S.PSPoisson(0,0.0,npost)
+pspre = S.PSPoisson(0,0.0,npre)
+pspost = S.PSPoisson(0,0.0,npost)
 
-const myτplus = 20E-3
-const myτminus = 40E-3
-const myAplus = 1.0E-3
-const myAminus = -0.5E-3
-const myplasticity = S.PairSTDP(myτplus,myτminus,myAplus,myAminus,npost,npre)
-const myplasticityT = S.PairSTDPFastT(myτplus,myτminus,myAplus,myAminus,npost,npre)
+myτplus = 20E-3
+myτminus = 40E-3
+myAplus = 1.0E-3
+myAminus = -0.5E-3
+
+dt = 0.1E-3
+wstart = let mask = (rand(npost,npre) .< 0.9)
+  sparse(fill(100.,npost,npre) .* mask)
+end
+
+myplasticity = S.PairSTDP(myτplus,myτminus,myAplus,myAminus,npost,npre)
+myplasticityT = S.PairSTDP_T(myτplus,myτminus,myAplus,myAminus,wstart)
 
 
-const dt = 0.1E-3
-const wstart = fill(100.0,npost,npre)
 
+@info "Large size network \n"
 
-println("\n")
 @info "Benchmark 1 (standard) : \n"
 b1 = @benchmark S.plasticity_update!(0.0,$dt,$pspost,myconnection,$pspre,$myplasticity) setup=(
   myconnection =S.ConnectionPlasticityTest(wstart,myplasticity);
@@ -56,24 +59,24 @@ show(stdout, MIME("text/plain"), b3)
 println("\n")
 
 
-@info "Repeat with size 200 network \n\n"
+@info "Repeat with size 200 network \n"
 
 
-const npre = 200 # pre pop 
-const npost = 200 # post pop 
+npre = 200 # pre pop 
+npost = 200 # post pop 
 
-const pspre = S.PSPoisson(0,0.0,npre)
-const pspost = S.PSPoisson(0,0.0,npost)
-
-const myplasticity = S.PairSTDP(myτplus,myτminus,myAplus,myAminus,npost,npre)
-const myplasticityT = S.PairSTDPFastT(myτplus,myτminus,myAplus,myAminus,npost,npre)
+pspre = S.PSPoisson(0,0.0,npre)
+pspost = S.PSPoisson(0,0.0,npost)
 
 
-const dt = 0.1E-3
-const wstart = fill(100.0,npost,npre)
+dt = 0.1E-3
+wstart = fill(100.0,npost,npre)
+
+myplasticity = S.PairSTDP(myτplus,myτminus,myAplus,myAminus,npost,npre)
+myplasticityT = S.PairSTDP_T(myτplus,myτminus,myAplus,myAminus,wstart)
 
 
-println("\n")
+
 @info "Benchmark 1 (standard) : \n"
 b1 = @benchmark S.plasticity_update!(0.0,$dt,$pspost,myconnection,$pspre,$myplasticity) setup=(
   myconnection =S.ConnectionPlasticityTest(wstart,myplasticity);
@@ -90,3 +93,40 @@ b3 = @benchmark S.plasticity_update!($dt,$dt,$pspost,myconnection,$pspre,$myplas
   add_fake_spikes!(pspre.isfiring,0.1))
 show(stdout, MIME("text/plain"), b3)
 println("\n")
+
+
+
+@info "Repeat with size 2000 network and LOW FREQUENCY \n"
+
+freq = 60.0
+
+npre = 2000 # pre pop 
+npost = 2000 # post pop 
+
+pspre = S.PSPoisson(0,0.0,npre)
+pspost = S.PSPoisson(0,0.0,npost)
+
+dt = 0.1E-3
+wstart = fill(100.0,npost,npre)
+
+myplasticity = S.PairSTDP(myτplus,myτminus,myAplus,myAminus,npost,npre)
+myplasticityT = S.PairSTDP_T(myτplus,myτminus,myAplus,myAminus,wstart)
+
+
+@info "Benchmark 1 (standard) : \n"
+b1 = @benchmark S.plasticity_update!(0.0,$dt,$pspost,myconnection,$pspre,$myplasticity) setup=(
+  myconnection =S.ConnectionPlasticityTest(wstart,myplasticity);
+  add_fake_spikes!(pspost.isfiring,dt*freq);
+  add_fake_spikes!(pspre.isfiring,dt*freq));
+show(stdout, MIME("text/plain"), b1)
+
+
+println("\n")
+@info "Benchmark 1 (fast + multithreading, $(Threads.nthreads()) threads) : \n"
+b3 = @benchmark S.plasticity_update!($dt,$dt,$pspost,myconnection,$pspre,$myplasticityT) setup=(
+  myconnection =S.ConnectionPlasticityTest(wstart,myplasticityT);
+  add_fake_spikes!(pspost.isfiring,dt*freq);
+  add_fake_spikes!(pspre.isfiring,dt*freq))
+show(stdout, MIME("text/plain"), b3)
+println("\n")
+

@@ -275,13 +275,114 @@ end
 # Fast version of pairwise STDP
 # with multithreading too!
 
-struct PairSTDPFastT <: PlasticityRule
+# Reindexes M so that it's sparse, but stored 
+# row-wise. Then computes a reindexing vector,
+# such that the nonzeros of row-wise M are remapped 
+# into the nonzeros of column-wise M
+function sparse_rows_remapping_idxs(M::AbstractMatrix)
+  nrows = size(M,1)
+  Ms = sparse(M)
+  _colptrM = SparseArrays.getcolptr(Ms) # column indexing
+  row_idxs = SparseArrays.getrowval(Ms)
+  row_idxs_remapping = similar(row_idxs)
+  Mst = sparse(transpose(M))
+  _colptrMt = SparseArrays.getcolptr(Mst) 
+  cols_idxs = SparseArrays.getrowval(Mst)
+  for row_idx in 1:nrows
+    cols = SparseArrays.nzrange(Mst,row_idx)
+    for col in cols
+      col_idx = cols_idxs[col]
+      _start = _colptrM[col_idx]
+      _end = _colptrM[col_idx+1]-1
+      _pnz = searchsortedfirst(row_idxs,row_idx,_start,_end,Base.Order.Forward)
+      if (_pnz<=_end) && (row_idxs[_pnz] == row_idx) # must check!
+        row_idxs_remapping[col] = _pnz
+      else
+        error("something went wrong")
+      end
+    end
+  end
+  return _colptrMt,cols_idxs,row_idxs_remapping
+end
+
+# WARNING: this plasticity assumes FIXED WEIGHT STRUCTURE
+# it is not compatible with structural plasticity,
+# unless one takes a very special care for it.
+struct PairSTDP_T <: PlasticityRule
   Aplus::Float64
   Aminus::Float64
   tracerplus::Trace 
   traceominus::Trace
   bounds::PlasticityBounds
-  function PairSTDPFastT(τplus,τminus,Aplus,Aminus,n_post,n_pre;
+  rows_ptr::Vector{Int64}
+  cols_idxs::Vector{Int64}
+  sparse_remapping::Vector{Int64}
+  function PairSTDP_T(τplus,τminus,Aplus,Aminus,weight_matrix;
+       plasticity_bounds=PlasticityBoundsNonnegative())
+    n_post,n_pre = size(weight_matrix)
+    rows_ptr,cols_idxs,sparse_remapping = sparse_rows_remapping_idxs(weight_matrix)
+    new(Aplus,Aminus,
+      Trace(τplus,n_pre),
+      Trace(τminus,n_post),
+      plasticity_bounds,rows_ptr,cols_idxs,sparse_remapping) 
+  end
+end
+
+function reset!(pl::PairSTDP_T)
+  reset!(pl.tracerplus)
+  reset!(pl.traceominus)
+  return nothing
+end
+
+function plasticity_update!(::Real,dt::Real,
+     pspost::PSSpiking,conn::Connection,pspre::PSSpiking,
+     plast::PairSTDP_T)
+  # elements of sparse matrix that I need
+  #_colptr = SparseArrays.getcolptr(conn.weights) # column indexing
+	row_idxs = rowvals(conn.weights) # postsynaptic neurons
+	weightsnz = nonzeros(conn.weights) # direct access to weights 
+  idx_pre_spike = findall(pspre.isfiring) 
+  idx_post_spike = findall(pspost.isfiring) 
+  # update synapses
+  # presynpatic spike go along w column
+  Threads.@threads for j_pre in idx_pre_spike
+		_posts_nz = nzrange(conn.weights,j_pre) # indexes of corresponding pre in nz space
+		@inbounds for _pnz in _posts_nz
+      i_post = row_idxs[_pnz]
+      Δw = plast.traceominus[i_post]*plast.Aminus
+      weightsnz[_pnz] = plast.bounds(weightsnz[_pnz],Δw)
+    end
+  end
+  # postsynaptic spike: go along w row
+  Threads.@threads for i_post in idx_post_spike
+		# select row on auxiliary indexing
+    _pre_nz = plast.rows_ptr[i_post]:(plast.rows_ptr[i_post+1]-1)
+		for _pnz in _pre_nz
+      j_pre = plast.cols_idxs[_pnz] 
+      Δw = plast.tracerplus[j_pre]*plast.Aplus
+      _pnzremap = plast.sparse_remapping[_pnz]
+      weightsnz[_pnzremap] = plast.bounds(weightsnz[_pnzremap],Δw)
+    end
+  end
+
+  # update the plasticity trace variables
+  plast.tracerplus.val[pspre.isfiring] .+= 1.0
+  plast.traceominus.val[pspost.isfiring] .+= 1.0
+  # time decay
+  trace_decay!(plast.tracerplus,dt)
+  trace_decay!(plast.traceominus,dt)
+  return nothing
+end
+
+
+
+struct PairSTDPFastXL <: PlasticityRule
+  Aplus::Float64
+  Aminus::Float64
+  tracerplus::Trace 
+  traceominus::Trace
+  bounds::PlasticityBounds
+  function PairSTDPFast_old(τplus,τminus,Aplus,Aminus,n_post,n_pre;
        plasticity_bounds=PlasticityBoundsNonnegative())
     new(Aplus,Aminus,
       Trace(τplus,n_pre),
@@ -290,7 +391,7 @@ struct PairSTDPFastT <: PlasticityRule
   end
 end
 
-function reset!(pl::PairSTDPFastT)
+function reset!(pl::PairSTDPFastXL)
   reset!(pl.tracerplus)
   reset!(pl.traceominus)
   return nothing
@@ -299,7 +400,7 @@ end
 
 function plasticity_update!(::Real,dt::Real,
      pspost::PSSpiking,conn::Connection,pspre::PSSpiking,
-     plast::PairSTDPFastT)
+     plast::PairSTDPFastXL)
   # elements of sparse matrix that I need
   _colptr = SparseArrays.getcolptr(conn.weights) # column indexing
 	row_idxs = rowvals(conn.weights) # postsynaptic neurons
@@ -317,13 +418,17 @@ function plasticity_update!(::Real,dt::Real,
     end
   end
   # postsynaptic spike: go along w row
-  _nnz = length(row_idxs)
-  Threads.@threads for _inz in (1:_nnz)
-    i_post=row_idxs[_inz]
-    if pspost.isfiring[i_post] 
-      j_pre = searchsortedlast(_colptr,_inz)
-      Δw = plast.tracerplus[j_pre]*plast.Aplus
-      weightsnz[_inz] = plast.bounds(weightsnz[_inz],Δw)
+  if any(pspost.isfiring)
+    _nnz = length(row_idxs)
+    Threads.@threads for _inz in (1:_nnz)
+      @inbounds begin
+        i_post=row_idxs[_inz]
+        if pspost.isfiring[i_post] 
+          j_pre = searchsortedlast(_colptr,_inz)
+          Δw = plast.tracerplus[j_pre]*plast.Aplus
+          weightsnz[_inz] = plast.bounds(weightsnz[_inz],Δw)
+        end
+      end
     end
   end
   # update the plasticity trace variables
