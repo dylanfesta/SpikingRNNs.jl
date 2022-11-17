@@ -95,13 +95,11 @@ show(stdout, MIME("text/plain"), b3)
 println("\n")
 
 
-
-@info "Repeat with size 2000 network and LOW FREQUENCY \n"
+@info "Repeat with size 500 network and LOW FREQUENCY \n"
 
 freq = 60.0
-
-npre = 2000 # pre pop 
-npost = 2000 # post pop 
+npre = 500 # pre pop 
+npost = 500 # post pop 
 
 pspre = S.PSPoisson(0,0.0,npre)
 pspost = S.PSPoisson(0,0.0,npost)

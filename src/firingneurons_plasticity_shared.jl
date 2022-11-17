@@ -345,29 +345,38 @@ function plasticity_update!(::Real,dt::Real,
   idx_post_spike = findall(pspost.isfiring) 
   # update synapses
   # presynpatic spike go along w column
-  Threads.@threads for j_pre in idx_pre_spike
-		_posts_nz = nzrange(conn.weights,j_pre) # indexes of corresponding pre in nz space
-		@inbounds for _pnz in _posts_nz
-      i_post = row_idxs[_pnz]
-      Δw = plast.traceominus[i_post]*plast.Aminus
-      weightsnz[_pnz] = plast.bounds(weightsnz[_pnz],Δw)
+  if !isempty(idx_pre_spike)
+    Threads.@threads for j_pre in idx_pre_spike
+      _posts_nz = nzrange(conn.weights,j_pre) # indexes of corresponding pre in nz space
+      @inbounds for _pnz in _posts_nz
+        i_post = row_idxs[_pnz]
+        Δw = plast.traceominus[i_post]*plast.Aminus
+        weightsnz[_pnz] = plast.bounds(weightsnz[_pnz],Δw)
+      end
     end
   end
   # postsynaptic spike: go along w row
-  Threads.@threads for i_post in idx_post_spike
-		# select row on auxiliary indexing
-    _pre_nz = plast.rows_ptr[i_post]:(plast.rows_ptr[i_post+1]-1)
-		for _pnz in _pre_nz
-      j_pre = plast.cols_idxs[_pnz] 
-      Δw = plast.tracerplus[j_pre]*plast.Aplus
-      _pnzremap = plast.sparse_remapping[_pnz]
-      weightsnz[_pnzremap] = plast.bounds(weightsnz[_pnzremap],Δw)
+  if !isempty(idx_post_spike)
+    Threads.@threads for i_post in idx_post_spike
+      # select row on auxiliary indexing
+      @inbounds begin
+        _pre_nz = plast.rows_ptr[i_post]:(plast.rows_ptr[i_post+1]-1)
+        for _pnz in _pre_nz
+          j_pre = plast.cols_idxs[_pnz] 
+          Δw = plast.tracerplus[j_pre]*plast.Aplus
+          _pnzremap = plast.sparse_remapping[_pnz]
+          weightsnz[_pnzremap] = plast.bounds(weightsnz[_pnzremap],Δw)
+        end
+      end
     end
   end
-
   # update the plasticity trace variables
-  plast.tracerplus.val[pspre.isfiring] .+= 1.0
-  plast.traceominus.val[pspost.isfiring] .+= 1.0
+  for j_pre in idx_pre_spike
+    plast.tracerplus[j_pre]+=1.0
+  end
+  for i_post in idx_post_spike
+    plast.traceominus[i_post]+=1.0
+  end
   # time decay
   trace_decay!(plast.tracerplus,dt)
   trace_decay!(plast.traceominus,dt)
@@ -382,7 +391,7 @@ struct PairSTDPFastXL <: PlasticityRule
   tracerplus::Trace 
   traceominus::Trace
   bounds::PlasticityBounds
-  function PairSTDPFast_old(τplus,τminus,Aplus,Aminus,n_post,n_pre;
+  function PairSTDPFastXL(τplus,τminus,Aplus,Aminus,n_post,n_pre;
        plasticity_bounds=PlasticityBoundsNonnegative())
     new(Aplus,Aminus,
       Trace(τplus,n_pre),
