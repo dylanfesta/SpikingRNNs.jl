@@ -153,8 +153,8 @@ function plasticity_update!(::Real,dt::Real,
   idx_post_spike = findall(pspost.isfiring) 
   # update synapses
   # presynpatic spike go along w column
-  _Ap = plast.A/plast.τ
-  _Am = plast.A*plast.θ / (plast.γ*plast.τ) 
+  _Ap = plast.A/plast.tracerplus.τ
+  _Am = plast.A*plast.θ / plast.tracerminus.τ
   for j_pre in idx_pre_spike
 		_posts_nz = nzrange(conn.weights,j_pre) # indexes of corresponding pre in nz space
 		@inbounds for _pnz in _posts_nz
