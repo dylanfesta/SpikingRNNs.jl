@@ -110,6 +110,89 @@ function plasticity_update!(::Real,dt::Real,
   return nothing
 end
 
+# Symmetric STDP
+"""
+    function SymmetricSTDP(τplus,τminus,Aplus,Aminus,n_post,n_pre;
+         plasticity_bounds=PlasticityBoundsNonnegative())
+
+Constructor for symmetric pairwise STPD rule.
+New parametrization, where tauplus is tau, tauminus is gamma*tau,
+Aplus is A/tauplus and Aminus is A*theta/tauminus 
+"""
+struct SymmetricSTDP <: PlasticityRule
+  A::Float64
+  θ::Float64
+  tracerplus::Trace 
+  tracerminus::Trace 
+  traceoplus::Trace
+  traceominus::Trace
+  bounds::PlasticityBounds
+  function SymmetricSTDP(τ,γ,A,θ,n_post,n_pre;
+       plasticity_bounds=PlasticityBoundsNonnegative())
+    τm = τ*γ  
+    new(A,θ,Trace(τ,n_pre),Trace(τm,n_pre),Trace(τ,n_post),Trace(τm,n_post),plasticity_bounds)
+  end
+end
+
+function reset!(pl::SymmetricSTDP)
+  reset!(pl.tracerplus)
+  reset!(pl.tracerminus)
+  reset!(pl.traceoplus)
+  reset!(pl.traceominus)
+  return nothing
+end
+
+function plasticity_update!(::Real,dt::Real,
+     pspost::PSSpiking,conn::Connection,pspre::PSSpiking,
+     plast::SymmetricSTDP)
+  # elements of sparse matrix that I need
+  _colptr = SparseArrays.getcolptr(conn.weights) # column indexing
+	row_idxs = rowvals(conn.weights) # postsynaptic neurons
+	weightsnz = nonzeros(conn.weights) # direct access to weights 
+  idx_pre_spike = findall(pspre.isfiring) 
+  idx_post_spike = findall(pspost.isfiring) 
+  # update synapses
+  # presynpatic spike go along w column
+  _Ap = plast.A/plast.τ
+  _Am = plast.A*plast.θ / (plast.γ*plast.τ) 
+  for j_pre in idx_pre_spike
+		_posts_nz = nzrange(conn.weights,j_pre) # indexes of corresponding pre in nz space
+		@inbounds for _pnz in _posts_nz
+      ipost = row_idxs[_pnz]
+      Δw = plast.traceoplus[ipost]*_Ap + plast.traceominus[ipost]*_Am
+      weightsnz[_pnz] = plast.bounds(weightsnz[_pnz],Δw)
+    end
+  end
+  # postsynaptic spike: go along w row
+  # innefficient ... need to search i element for each column
+  for i_post in idx_post_spike
+    for j_pre in (1:pspre.n)
+      _start = _colptr[j_pre]
+      _end = _colptr[j_pre+1]-1
+      _pnz = searchsortedfirst(row_idxs,i_post,_start,_end,Base.Order.Forward)
+      if (_pnz<=_end) && (row_idxs[_pnz] == i_post) # must check!
+        Δw = plast.tracerplus[j_pre]*_Ap  + plast.tracerminus[j_pre]*_Am
+        weightsnz[_pnz] = plast.bounds(weightsnz[_pnz],Δw)
+      end
+    end
+  end
+  # update the plasticity trace variables
+  for j_pre in idx_pre_spike
+    plast.tracerplus[j_pre]+=1.0
+    plast.tracerminus[j_pre]+=1.0
+  end
+  for i_post in idx_post_spike
+    plast.traceoplus[i_post]+=1.0
+    plast.traceominus[i_post]+=1.0
+  end
+  # time decay
+  trace_decay!(plast.tracerplus,dt)
+  trace_decay!(plast.tracerminus,dt)
+  trace_decay!(plast.traceoplus,dt)
+  trace_decay!(plast.traceominus,dt)
+  return nothing
+end
+
 
 
 ### Triplets rule
