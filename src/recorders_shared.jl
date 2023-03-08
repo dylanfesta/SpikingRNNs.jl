@@ -268,18 +268,49 @@ function add_fake_spikes!(v_spike::Float64,rtrace::RecStateNow,rspk::Union{RecSp
     spiketimes,spikeneurons,rtrace.idx_save)
 end
 
-##
+## spike binning and related
 
+
+function bin_spikes(Y::Vector{R},dt::R;Tend::R=0.0,Tstart::R=0.0) where R
+  Tend = Tend==0.0 ? Y[end]+dt : Tend
+  times = range(Tstart,Tend;step=dt)  
+  ret = fill(0,length(times)-1)
+  for y in Y
+    if Tstart < y <= last(times)
+      k = searchsortedfirst(times,y)-1
+      ret[k] += 1
+    end
+  end
+  return ret
+end
+
+# returns a matrix
+function bin_and_rates(Ys::Vector{Vector{R}},dt::R;Tend::R=0.0,Tstart::R=0.0) where R
+  Tend = Tend==0.0 ? maximum(_y->_y[end],Ys)+dt : Tend
+  times = range(Tstart,Tend;step=dt)
+  ret = [bin_spikes(Y,dt;Tend=Tend,Tstart=Tstart) ./ dt for Y in Ys]
+  return midpoints(times),vcat(transpose.(ret)...)
+end
+function bin_and_rates(Y::Vector{R},dt::R;Tend::R=0.0,Tstart::R=0.0) where R
+  Tend = Tend==0.0 ? Y[end]+dt : Tend
+  _tim,_spi = binned_spikes(dt,[Y,];Tend=Tend,Tstart=Tstart)
+  return _tim,_spi
+end
+
+
+# these act on the saved format of spikecounts and spike neurons
 function binned_spikecount(dt::Float64,rspk::Union{RecSpikes,RecSpikesContent};
-    Nneurons::Int64=-1,Tend::Float64=-1.0)
+    Nneurons::Int64=-1,Tend::Float64=-1.0,Tstart::Float64=-1.0)
+  Tend = Tend==-1.0 ? rspk.Tend : Tend
+  Tstart = Tstart==-1.0 ? rspk.Tstart : Tstart
   return binned_spikecount(dt,get_spiketimes_spikeneurons(rspk)...;
-    Nneurons=Nneurons,Tend=max(Tend,rspk.Tend),Tstart=rspk.Tstart)
+    Nneurons=Nneurons,Tend=Tend,Tstart=Tstart)
 end
 function binned_spikecount(dt::Float64,spktimes::Vector{Float64},
     spkneurons::Vector{Int64};Nneurons::Int64=-1,
       Tend::Float64=-1.0,Tstart::Float64=0.0)
-  Tend = max(Tend, maximum(spktimes)+dt)
-  Nneus = max(Nneurons,maximum(spkneurons))
+  Tend = Tend==-1.0 ? maximum(spktimes)+dt : Tend
+  Nneus = Nneurons==-1 ? maximum(spkneurons) : Nneurons
   tbins = Tstart:dt:Tend
   ntimes = length(tbins)-1
   binnedcount = fill(0,(Nneus,ntimes))
@@ -292,6 +323,13 @@ function binned_spikecount(dt::Float64,spktimes::Vector{Float64},
   binsc=midpoints(tbins)
   return binsc,binnedcount
 end
+
+function get_instantaneous_rates(dt::Float64,rspk::Union{RecSpikes,RecSpikesContent};
+    Nneurons::Int64=-1,Tend::Float64=-1.0,Tstart::Float64=0.0)
+  binsc,binnedcount = binned_spikecount(dt,rspk;Nneurons=Nneurons,Tend=Tend,Tstart=Tstart)
+  return binsc,binnedcount ./ dt
+end
+
 
 
 # convolve spiketimes with negative exponential
