@@ -76,26 +76,6 @@ function local_update!(::Float64,dt::Float64,ps::PSPoissonNeuron)
   return nothing 
 end
 
-# non-vectorized version 
-# function local_update_old!(::Float64,dt::Float64,ps::PSPoissonNeuron)
-#   # refresh randomly generated values
-#   rand!(ps.random_alloc)
-#   @inbounds @simd for i in 1:ps.n
-#     # euler step here...
-#     # rate is total input filtered by nonlinearity
-#     state_now = ps.state_now[i]
-#     state_now += dt * (-state_now+ps.input[i]) / ps.τ
-#     rate_now = ps.io_function(state_now)
-#     # is firing ?
-#     ps.isfiring[i] = ps.random_alloc[i] < ( rate_now * dt)
-#     # store instantaneopus rate
-#     ps.state_now[i] = state_now
-#   end
-#   #all done !
-#   return nothing 
-# end
-
-
 
 abstract type PoissonConnectionSign end
 struct PoissonExcitatory <: PoissonConnectionSign end
@@ -121,6 +101,7 @@ function ConnectionPoissonExpKernel(sign::PoissonConnectionSign,τ::Float64,
   post_trace = Trace(τ,npost)
   return ConnectionPoissonExpKernel(sign,post_trace,weights,plasticities)
 end
+
 
 @inline function kernel_decay!(co::ConnectionPoissonExpKernel,dt::Float64)
   trace_decay!(co.post_trace,dt)
@@ -166,6 +147,24 @@ function forward_signal!(::Real,dt::Real,
   return nothing
 end
 
+# this is a fake connection used for non-interacting populations
+# mostly used to check plasticity rules
+struct ConnectionPoissonNonInteracting{N,PL<:NTuple{N,PlasticityRule}} <: AbstractConnectionPoisson
+  weights::SparseMatrixCSC{Float64,Int64}
+  plasticities::PL
+end
+function ConnectionPoissonNonInteracting(
+    weights::Union{Matrix{Float64},SparseMatrixCSC{Float64,Int64}};
+    plasticities=(NoPlasticity(),))
+  if weights isa Matrix 
+    weights = sparse(weights)
+  end
+  return ConnectionPoissonNonInteracting(weights,plasticities)
+end
+function forward_signal!(::Real,dt::Real,
+      pspost::PSPoissonNeuron,conn::ConnectionPoissonNonInteracting,pspre::PSSpiking)
+  return nothing
+end
 
 # deals with inputs that are just currents
 struct PoissonInputCurrentConstant{V<:Union{Float64,Vector{Float64}}} <: PopulationState
